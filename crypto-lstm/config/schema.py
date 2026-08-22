@@ -59,7 +59,10 @@ class LossConfig:
     directional_alpha: float
     classification_weight: float = 0.0
     dir_deadband: float = 0.0
-
+    type: str
+    alpha_dir: float = 0.0
+    alpha_mag: float = 0.0
+    alpha_sharpe: float = 0.0
 @dataclass
 class ArtifactsConfig:
     base_dir: str
