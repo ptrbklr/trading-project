@@ -19,7 +19,7 @@ def create_loss(cfg_loss):
             directional_alpha=cfg_loss.directional_alpha,
         )
     if cfg_loss.type == "trading":
-    return TradingLoss(
+        return TradingLoss(
         alpha_dir=cfg_loss.alpha_dir,
         alpha_mag=cfg_loss.alpha_mag,
         alpha_sharpe=cfg_loss.alpha_sharpe
