@@ -2,6 +2,7 @@ from torch import nn
 from .hybrid import HybridLoss
 from .directional import DirectionalLoss
 from .base import LogCoshLoss
+from .directional import TradingLoss
 
 def create_loss(cfg_loss):
     if cfg_loss.type == 'mse':
@@ -19,4 +20,10 @@ def create_loss(cfg_loss):
         )
     if cfg_loss.type == 'logcosh':
         return LogCoshLoss()
+    elif loss_cfg.name == "trading":
+        return TradingLoss(
+            alpha_dir=loss_cfg.alpha_dir,
+            alpha_mag=loss_cfg.alpha_mag,
+            alpha_sharpe=loss_cfg.alpha_sharpe
+        )    
     raise ValueError(f"Unknown loss type: {cfg_loss.type}")
