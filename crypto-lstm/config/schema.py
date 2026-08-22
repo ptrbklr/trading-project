@@ -52,14 +52,6 @@ class TrainingConfig:
 
 @dataclass
 class LossConfig:
-    type: str
-    mse_weight: float
-    mae_weight: float
-    directional_weight: float
-    directional_alpha: float
-    classification_weight: float = 0.0
-    dir_deadband: float = 0.0
-    type: str
     alpha_dir: float = 0.0
     alpha_mag: float = 0.0
     alpha_sharpe: float = 0.0
