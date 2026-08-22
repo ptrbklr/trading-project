@@ -38,14 +38,11 @@ training:
     min_delta: 0.0001
 
 loss:
-  type: hybrid
-  mse_weight: 0.5
-  mae_weight: 0.3
-  directional_weight: 0.2
-  directional_alpha: 0.5
-  classification_weight: 0.1
-  dir_deadband: 0.1
-
+  name: trading
+  alpha_dir: 0.1
+  alpha_mag: 0.05
+  alpha_sharpe: 0.1
+  
 artifacts:
   base_dir: artifacts
   save_best_only: true
