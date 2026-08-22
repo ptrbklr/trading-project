@@ -1,0 +1,9 @@
+crypto-lstm/data/candles/BTC_15min.csv
+crypto-lstm/data/candles/BTC_1min.csv
+crypto-lstm/data/candles/BTC_5min.csv
+crypto-lstm/data/candles/BTC_60min.csv
+crypto-lstm/data/candles/BTC_futures_1440min.csv
+*.csv
+*.pkl
+*.pyc
+*.0

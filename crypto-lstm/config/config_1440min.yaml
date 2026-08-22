@@ -1,0 +1,54 @@
+# Runtime and model configuration
+experiment_name: btc_lstm_1440min_v1
+
+data:
+  dir: data/candles
+  symbol: BTC
+  interval_minutes: 1440
+  date_col: null
+  close_col: null
+  col_names: "time,open,high,low,close,volume,trades"
+  add_features: true
+  train_split: 0.8
+  lookback_hours: 11784
+  predict_returns: true
+  futures_path: data/candles/BTC_futures_1440min.csv
+  futures_columns: [mark_price, futures_volume]
+
+model:
+  type: lstm
+  hidden_size: 256
+  num_layers: 3
+  dropout: 0.2
+  seq_len: 30
+  attention: true
+  classification_head: true
+
+training:
+  epochs: 100
+  batch_size: 64
+  lr: 0.001
+  grad_clip: 1.0
+  optimizer: adam
+  scheduler:
+    type: reduce_on_plateau
+    factor: 0.5
+    patience: 10
+  early_stopping:
+    enabled: true
+    patience: 15
+    min_delta: 0.0001
+
+loss:
+  type: hybrid
+  mse_weight: 0.5
+  mae_weight: 0.3
+  directional_weight: 0.2
+  directional_alpha: 0.5
+  classification_weight: 0.1
+  dir_deadband: 0.1
+
+artifacts:
+  base_dir: artifacts
+  save_best_only: true
+  save_every_n_epochs: 10
