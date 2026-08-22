@@ -18,12 +18,10 @@ def create_loss(cfg_loss):
             directional_weight=cfg_loss.directional_weight,
             directional_alpha=cfg_loss.directional_alpha,
         )
-    if cfg_loss.type == 'logcosh':
-        return LogCoshLoss()
-    elif loss_cfg.name == "trading":
-        return TradingLoss(
-            alpha_dir=loss_cfg.alpha_dir,
-            alpha_mag=loss_cfg.alpha_mag,
-            alpha_sharpe=loss_cfg.alpha_sharpe
-        )    
+    if cfg_loss.type == "trading":
+    return TradingLoss(
+        alpha_dir=cfg_loss.alpha_dir,
+        alpha_mag=cfg_loss.alpha_mag,
+        alpha_sharpe=cfg_loss.alpha_sharpe
+    )
     raise ValueError(f"Unknown loss type: {cfg_loss.type}")
