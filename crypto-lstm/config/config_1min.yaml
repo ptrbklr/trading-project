@@ -1,18 +1,18 @@
 # Runtime and model configuration
-experiment_name: btc_lstm_1min_v1
+experiment_name: btceth_lstm_15min_v1
 
 data:
   dir: data/candles
-  symbol: BTC
+  symbols: ["BTC", "ETH", "ETHBTC"]   # BTC/EUR, ETH/EUR, native ETH/BTC (Kraken's ETHXBT market)
+  target_symbol: "BTCETH"             # BTC priced in ETH, derived as the reciprocal of ETHBTC
+  reciprocal_source: "ETHBTC"
   interval_minutes: 1
   date_col: null
   close_col: null
   col_names: "time,open,high,low,close,volume,trades"
   add_features: true
   train_split: 0.8
-  lookback_hours: 480
   predict_returns: true
-  futures_path: data/candles/BTC_futures_1min.csv
 
 model:
   type: lstm
@@ -29,7 +29,6 @@ training:
   lr: 0.001
   grad_clip: 1.0
   optimizer: adam
-  seed: 123
   scheduler:
     type: reduce_on_plateau
     factor: 0.5

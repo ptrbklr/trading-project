@@ -5,13 +5,16 @@ import yaml
 @dataclass
 class DataConfig:
     dir: str
-    symbol: str
     interval_minutes: int
     date_col: Optional[str]
     close_col: Optional[str]
     col_names: str
     add_features: bool
     train_split: float
+    symbol: Optional[str] = None
+    symbols: Optional[list] = None
+    target_symbol: Optional[str] = None
+    reciprocal_source: Optional[str] = None
     lookback_hours: Optional[float] = None
     predict_returns: bool = False
     futures_path: Optional[str] = None

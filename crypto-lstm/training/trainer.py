@@ -2,8 +2,8 @@ import torch
 from torch.utils.data import DataLoader, TensorDataset
 import numpy as np
 
-from data.loader import load_candles
-from data.features import add_technical_features
+from data.loader import load_candles, load_multi_pair_candles
+from data.features import add_technical_features, add_multi_pair_features
 from data.scaling import fit_scalers, apply_scalers
 from data.sequences import create_sequences
 from models.factory import create_model
@@ -17,20 +17,41 @@ from training.metrics import compute_metrics
 class Trainer:
     def __init__(self, cfg):
         self.cfg = cfg
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        if torch.cuda.is_available():
+            self.device = torch.device('cuda')
+        elif torch.backends.mps.is_available():
+            self.device = torch.device('mps')
+        else:
+            self.device = torch.device('cpu')
 
     def _prepare_data(self):
-        df = load_candles(self.cfg.data)
-        if self.cfg.data.add_features:
-            df = add_technical_features(df)
+        symbols = getattr(self.cfg.data, 'symbols', None)
+        target_symbol = getattr(self.cfg.data, 'target_symbol', None)
+
+        if symbols:
+            df = load_multi_pair_candles(self.cfg.data)
+            prefixes = [s.lower() for s in symbols]
+            if target_symbol and target_symbol.upper() not in [s.upper() for s in symbols]:
+                prefixes.append(target_symbol.lower())
+            if self.cfg.data.add_features:
+                df = add_multi_pair_features(df, prefixes)
+            target_prefix = (target_symbol or symbols[0]).lower()
+        else:
+            df = load_candles(self.cfg.data)
+            if self.cfg.data.add_features:
+                df = add_technical_features(df)
+            target_prefix = None
 
         self.predict_returns = getattr(self.cfg.data, 'predict_returns', False)
-        if self.predict_returns and 'return_vol_norm' in df.columns:
-            target_col = 'return_vol_norm'
-        elif self.predict_returns and 'log_return' in df.columns:
-            target_col = 'log_return'
+        return_col = f'{target_prefix}_return_vol_norm' if target_prefix else 'return_vol_norm'
+        log_return_col = f'{target_prefix}_log_return' if target_prefix else 'log_return'
+        close_col = f'{target_prefix}_close' if target_prefix else 'close'
+        if self.predict_returns and return_col in df.columns:
+            target_col = return_col
+        elif self.predict_returns and log_return_col in df.columns:
+            target_col = log_return_col
         else:
-            target_col = 'close'
+            target_col = close_col
         target_idx = df.columns.get_loc(target_col) if target_col in df.columns else 4
 
         values = df.values
@@ -39,6 +60,7 @@ class Trainer:
         values_scaled = apply_scalers(values, scalers)
 
         X, y = create_sequences(values_scaled, self.cfg.model.seq_len, target_idx)
+        X, y = X.astype(np.float32), y.astype(np.float32)
 
         split = int(len(X) * self.cfg.data.train_split)
         X_train, X_val = X[:split], X[split:]

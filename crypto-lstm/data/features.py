@@ -36,3 +36,45 @@ def add_technical_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.dropna()
     return df
 
+
+def add_technical_features_for(df: pd.DataFrame, prefix: str) -> pd.DataFrame:
+    # same causal indicators as add_technical_features, computed for one prefixed pair (e.g. "btc_", "btceth_")
+    close = df[f'{prefix}_close']
+    volume = df[f'{prefix}_volume']
+
+    out = pd.DataFrame(index=df.index)
+    out[f'{prefix}_ma_20'] = close.rolling(window=20, min_periods=20).mean()
+    out[f'{prefix}_ma_50'] = close.rolling(window=50, min_periods=50).mean()
+    out[f'{prefix}_vol_ma_20'] = volume.rolling(window=20, min_periods=20).mean()
+
+    log_return = np.log(close / close.shift(1))
+    out[f'{prefix}_log_return'] = log_return
+    out[f'{prefix}_return_lag_2'] = log_return.shift(1)
+    out[f'{prefix}_return_lag_3'] = log_return.shift(2)
+    out[f'{prefix}_return_lag_5'] = log_return.shift(4)
+    volatility_20 = log_return.rolling(window=20, min_periods=20).std()
+    out[f'{prefix}_volatility_20'] = volatility_20
+    out[f'{prefix}_volume_delta'] = volume.pct_change()
+    out[f'{prefix}_return_vol_norm'] = log_return / volatility_20.shift(1)
+
+    delta = close.diff()
+    gain = delta.clip(lower=0).rolling(window=14, min_periods=14).mean()
+    loss = (-delta.clip(upper=0)).rolling(window=14, min_periods=14).mean()
+    rs = gain / loss.replace(0, np.nan)
+    out[f'{prefix}_rsi_14'] = 100 - (100 / (1 + rs))
+
+    ema_12 = close.ewm(span=12, adjust=False).mean()
+    ema_26 = close.ewm(span=26, adjust=False).mean()
+    macd = ema_12 - ema_26
+    out[f'{prefix}_macd'] = macd
+    out[f'{prefix}_macd_signal'] = macd.ewm(span=9, adjust=False).mean()
+    out[f'{prefix}_macd_hist'] = macd - out[f'{prefix}_macd_signal']
+    return out
+
+
+def add_multi_pair_features(df: pd.DataFrame, prefixes) -> pd.DataFrame:
+    parts = [df] + [add_technical_features_for(df, prefix) for prefix in prefixes]
+    combined = pd.concat(parts, axis=1)
+    combined = combined.replace([np.inf, -np.inf], np.nan).dropna().reset_index(drop=True)
+    return combined
+

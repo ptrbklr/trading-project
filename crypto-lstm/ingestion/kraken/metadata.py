@@ -5,6 +5,8 @@ def resolve_kraken_pair(pair: str) -> str:
     pair = pair.upper().replace("/", "")
     return {
         "BTC": "XXBTZEUR",
+        "ETH": "ETHEUR",
+        "ETHBTC": "ETHXBT",
     }.get(pair, pair)
 
 
@@ -19,6 +21,10 @@ def normalize_pair_name(pair: str) -> str:
     """
 
     p = pair.upper().replace("/", "_")
+
+    # native ETH/BTC market: keep distinct from the EUR-quoted "ETH" filename
+    if p in {"ETHXBT", "XETHXXBT", "ETHBTC"}:
+        return "ETHBTC"
 
     # Kraken base-asset prefixes
     prefix_map = {
