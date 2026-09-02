@@ -9,13 +9,14 @@ def create_loss(cfg_loss):
     if cfg_loss.type == 'mae':
         return nn.L1Loss()
     if cfg_loss.type == 'directional':
-        return DirectionalLoss(alpha=cfg_loss.directional_alpha)
+        return DirectionalLoss(alpha=cfg_loss.directional_alpha, deadband=getattr(cfg_loss, 'dir_deadband', 0.0))
     if cfg_loss.type == 'hybrid':
         return HybridLoss(
             mse_weight=cfg_loss.mse_weight,
             mae_weight=cfg_loss.mae_weight,
             directional_weight=cfg_loss.directional_weight,
             directional_alpha=cfg_loss.directional_alpha,
+            dir_deadband=getattr(cfg_loss, 'dir_deadband', 0.0),
         )
     if cfg_loss.type == 'logcosh':
         return LogCoshLoss()

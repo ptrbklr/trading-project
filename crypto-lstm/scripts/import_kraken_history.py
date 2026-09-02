@@ -14,7 +14,13 @@ CANDLES_DIR = PROJECT_ROOT / "data/candles"
 RAW_DIR = PROJECT_ROOT / "data/raw"
 
 # our_symbol -> kraken bulk-dump filename prefix
-PAIR_DUMPS = {"BTC": "XBTEUR", "ETH": "ETHEUR", "ETHBTC": "ETHXBT"}
+PAIR_DUMPS = {
+    "BTC": "XBTEUR",
+    "ETH": "ETHEUR",
+    "ETHBTC": "ETHXBT",
+    "BTCUSD": "XBTUSD",
+    "ETHUSD": "ETHUSD",
+}
 INTERVALS = [1, 5, 15, 60]
 YEARS_BACK = 5
 COLUMNS = ["timestamp", "open", "high", "low", "close", "volume", "trades"]

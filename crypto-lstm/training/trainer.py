@@ -141,8 +141,13 @@ class Trainer:
         loss = self._apply_loss(criterion, reg_pred, yb, last_close)
         cls_weight = getattr(self.cfg.loss, 'classification_weight', 0.0)
         if cls_logit is not None and cls_weight > 0:
-            cls_target = (yb > last_close).float()
-            cls_loss = torch.nn.functional.binary_cross_entropy_with_logits(cls_logit, cls_target)
+            deadband = getattr(self.cfg.loss, 'dir_deadband', 0.0)
+            true_delta = (yb - last_close).squeeze(1)
+            # 3-way direction target: 0=down, 1=flat, 2=up
+            cls_target = torch.ones_like(true_delta, dtype=torch.long)
+            cls_target[true_delta > deadband] = 2
+            cls_target[true_delta < -deadband] = 0
+            cls_loss = torch.nn.functional.cross_entropy(cls_logit, cls_target)
             loss = loss + cls_weight * cls_loss
         return reg_pred, loss
 

@@ -11,7 +11,7 @@ from ingestion.kraken.metadata import normalize_pair_name, resolve_kraken_pair
 # bulk historical OHLCVT dump ends 2026-03-31 23:00 UTC; backfill from there to now
 GAP_START_TS = 1774998000
 
-PAIRS = ["BTC", "ETH", "ETHBTC"]
+PAIRS = ["BTC", "ETH", "ETHBTC", "BTCUSD", "ETHUSD"]
 
 for symbol in PAIRS:
     pair = resolve_kraken_pair(symbol)

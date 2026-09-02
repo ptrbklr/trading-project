@@ -2,9 +2,10 @@ import torch
 from torch import nn
 
 class DirectionalLoss(nn.Module):
-    def __init__(self, alpha: float):
+    def __init__(self, alpha: float, deadband: float = 0.0):
         super().__init__()
         self.alpha = alpha
+        self.deadband = deadband
         self.mse = nn.MSELoss()
 
     def forward(self, y_pred, y_true, last_close):
@@ -15,11 +16,14 @@ class DirectionalLoss(nn.Module):
         pred_delta = y_pred - last_close
         true_delta = y_true - last_close
 
+        # ignore near-zero true moves so noise doesn't dominate the directional penalty
+        mask = (true_delta.abs() > self.deadband).float()
+
         # Differentiable directional penalty:
         # penalizes negative alignment (wrong direction)
         # but gives zero penalty when aligned
-        direction_penalty = torch.nn.functional.softplus(
-            - pred_delta * true_delta).mean()
+        direction_penalty = (torch.nn.functional.softplus(
+            - pred_delta * true_delta) * mask).mean()
 
 
         return base + self.alpha * direction_penalty

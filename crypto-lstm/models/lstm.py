@@ -17,7 +17,8 @@ class LSTMModel(nn.Module):
             self.attn = nn.Linear(hidden_size, 1)
         self.fc = nn.Linear(hidden_size, 1)
         if use_classification_head:
-            self.cls_head = nn.Linear(hidden_size, 1)
+            # 3-way direction head: 0=down, 1=flat, 2=up
+            self.cls_head = nn.Linear(hidden_size, 3)
 
     def forward(self, x):
         out, _ = self.lstm(x)  # (batch, seq, hidden)

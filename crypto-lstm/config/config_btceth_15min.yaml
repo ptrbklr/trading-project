@@ -3,7 +3,7 @@ experiment_name: btceth_lstm_15min_v1
 
 data:
   dir: data/candles
-  symbols: ["BTC", "ETH", "ETHBTC"]   # BTC/EUR, ETH/EUR, native ETH/BTC (Kraken's ETHXBT market)
+  symbols: ["BTC", "ETH", "ETHBTC", "BTCUSD", "ETHUSD"]   # BTC/EUR, ETH/EUR, native ETH/BTC, and USD legs for relative-strength features
   target_symbol: "BTCETH"             # BTC priced in ETH, derived as the reciprocal of ETHBTC
   reciprocal_source: "ETHBTC"
   interval_minutes: 15
