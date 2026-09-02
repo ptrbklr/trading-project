@@ -164,6 +164,33 @@ def _add_reciprocal_cross(df: pd.DataFrame, source_symbol: str, target_name: str
     return df
 
 
+def _load_funding_rate(data_dir: str, symbol: str) -> pd.DataFrame:
+    for base_dir in _candidate_data_dirs(data_dir):
+        path = os.path.join(base_dir, f"{symbol}_funding.csv")
+        if os.path.exists(path):
+            df = pd.read_csv(path, parse_dates=['timestamp'])
+            return df[['timestamp', 'funding_rate']].rename(
+                columns={'funding_rate': f'{symbol.lower()}_funding_rate'}
+            )
+    return pd.DataFrame(columns=['timestamp', f'{symbol.lower()}_funding_rate'])
+
+
+def _add_funding_divergence(df: pd.DataFrame, data_dir: str) -> pd.DataFrame:
+    # funding rate history only covers the last ~year; older rows are filled neutral (0)
+    # rather than dropped, so the 5-year candle history isn't discarded
+    btc_funding = _load_funding_rate(data_dir, 'BTC')
+    eth_funding = _load_funding_rate(data_dir, 'ETH')
+
+    df = df.sort_values('timestamp')
+    df = pd.merge_asof(df, btc_funding.sort_values('timestamp'), on='timestamp', direction='backward')
+    df = pd.merge_asof(df, eth_funding.sort_values('timestamp'), on='timestamp', direction='backward')
+
+    df['btc_funding_rate'] = df['btc_funding_rate'].fillna(0.0)
+    df['eth_funding_rate'] = df['eth_funding_rate'].fillna(0.0)
+    df['funding_divergence'] = df['btc_funding_rate'] - df['eth_funding_rate']
+    return df
+
+
 def load_multi_pair_candles(cfg_data) -> pd.DataFrame:
     symbols = list(cfg_data.symbols)
     interval = cfg_data.interval_minutes
@@ -185,6 +212,9 @@ def load_multi_pair_candles(cfg_data) -> pd.DataFrame:
                 "target_symbol requires either reciprocal_source (a native pair in symbols) "
                 "or exactly two input symbols to derive a synthetic cross"
             )
+
+    if {'BTC', 'ETH'}.issubset({s.upper() for s in symbols}):
+        merged = _add_funding_divergence(merged, cfg_data.dir)
 
     merged = merged.sort_values('timestamp').reset_index(drop=True)
     merged = merged.drop(columns=['timestamp'])

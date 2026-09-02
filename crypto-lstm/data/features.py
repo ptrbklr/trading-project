@@ -56,6 +56,7 @@ def add_technical_features_for(df: pd.DataFrame, prefix: str) -> pd.DataFrame:
     out[f'{prefix}_volatility_20'] = volatility_20
     out[f'{prefix}_volume_delta'] = volume.pct_change()
     out[f'{prefix}_return_vol_norm'] = log_return / volatility_20.shift(1)
+    out[f'{prefix}_momentum_10'] = np.log(close / close.shift(10))
 
     delta = close.diff()
     gain = delta.clip(lower=0).rolling(window=14, min_periods=14).mean()
@@ -75,6 +76,12 @@ def add_technical_features_for(df: pd.DataFrame, prefix: str) -> pd.DataFrame:
 def add_multi_pair_features(df: pd.DataFrame, prefixes) -> pd.DataFrame:
     parts = [df] + [add_technical_features_for(df, prefix) for prefix in prefixes]
     combined = pd.concat(parts, axis=1)
+
+    # rolling correlation regime between BTC and ETH's own returns (relative-strength context)
+    if 'btc_log_return' in combined.columns and 'eth_log_return' in combined.columns:
+        corr = combined['btc_log_return'].rolling(window=20, min_periods=20).corr(combined['eth_log_return'])
+        combined = pd.concat([combined, corr.rename('btc_eth_corr_20')], axis=1)
+
     combined = combined.replace([np.inf, -np.inf], np.nan).dropna().reset_index(drop=True)
     return combined
 
