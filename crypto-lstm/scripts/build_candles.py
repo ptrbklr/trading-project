@@ -20,7 +20,7 @@ def parse_args():
     p.add_argument('--candles-dir', default=str(PROJECT_ROOT / 'data/candles'))
     p.add_argument(
         '--interval', type=int, nargs='+', default=[1, 5, 15, 60],
-        help='One or more candle intervals in minutes (default: 1 5 15 60)',
+        help='One or more candle intervals in minutes (default: 1 5 15 60 1440)',
     )
     return p.parse_args()
 

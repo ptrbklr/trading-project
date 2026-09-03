@@ -21,7 +21,7 @@ PAIR_DUMPS = {
     "BTCUSD": "XBTUSD",
     "ETHUSD": "ETHUSD",
 }
-INTERVALS = [1, 5, 15, 60]
+INTERVALS = [1, 5, 15, 60, 1440]
 YEARS_BACK = 5
 COLUMNS = ["timestamp", "open", "high", "low", "close", "volume", "trades"]
 
