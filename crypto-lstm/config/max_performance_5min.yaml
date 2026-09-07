@@ -76,18 +76,6 @@ features:
 
 experiment_name: "sol_5min_lstm"
 
-data:
-  dir: /Volumes/ext-data/Python/Projects/trading-project/crypto-lstm/data/candles
-  symbol: "SOL"
-  interval_minutes: 5
-  date_col: null
-  close_col: null
-  col_names: "time,open,high,low,close,volume,trades"
-  add_features: true
-  train_split: 0.8
-  lookback_hours: 720
-  predict_returns: true
-
 model:
   type: "lstm"
   hidden_size: 128
