@@ -140,6 +140,26 @@ def add_technical_features_for(df: pd.DataFrame, prefix: str) -> pd.DataFrame:
 def add_multi_pair_features(df: pd.DataFrame, prefixes) -> pd.DataFrame:
     combined = df.copy()
 
+        # === Compute log returns + lagged returns for each asset ===
+    for prefix in prefixes:
+        close_col = f"{prefix}_close"
+        if close_col in combined.columns:
+            # Log return
+            combined[f"{prefix}_log_return"] = np.log(
+                combined[close_col] / combined[close_col].shift(1)
+            )
+
+            # Lagged returns
+            combined[f"{prefix}_return_lag_2"] = combined[f"{prefix}_log_return"].shift(1)
+            combined[f"{prefix}_return_lag_3"] = combined[f"{prefix}_log_return"].shift(2)
+            combined[f"{prefix}_return_lag_5"] = combined[f"{prefix}_log_return"].shift(4)
+
+            # Longer lags (10s, 20s, 30s)
+            combined[f"{prefix}_return_lag_10s"] = combined[f"{prefix}_log_return"].shift(10)
+            combined[f"{prefix}_return_lag_20s"] = combined[f"{prefix}_log_return"].shift(20)
+            combined[f"{prefix}_return_lag_30s"] = combined[f"{prefix}_log_return"].shift(30)
+
+
     # rolling correlation regime between BTC and ETH's own returns (relative-strength context)
     if 'btc_log_return' in combined.columns and 'eth_log_return' in combined.columns:
         corr = combined['btc_log_return'].rolling(window=20, min_periods=20).corr(combined['eth_log_return'])
