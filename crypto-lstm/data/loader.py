@@ -37,6 +37,7 @@ def find_candle_file(cfg_data) -> str:
 
 
 def load_futures_snapshots(path: str) -> pd.DataFrame:
+    os.chdir('/Volumes/ext-data/Python/Projects/trading-project/crypto-lstm')
     if not os.path.exists(path):
         raise FileNotFoundError(f"Futures snapshot file not found: {path}")
     df = pd.read_csv(path, parse_dates=['timestamp'])
@@ -91,14 +92,67 @@ def load_candles(cfg_data) -> pd.DataFrame:
     df = df.dropna(subset=numeric_cols).reset_index(drop=True)
     return df
 
+def load_multi_asset_candles(cfg_data, extra_pairs):
+    """
+    Load main asset candles and merge additional assets (BTC, ETH)
+    using merge_asof on timestamp.
+    """
+    # Load main asset
+    df_main = load_candles(cfg_data)
+    df_main = df_main.sort_values('timestamp')
+
+    merged = df_main.copy()
+
+    for pair in extra_pairs:
+        # Build a temporary cfg object for each extra pair
+        temp_cfg = cfg_data.__class__(
+            symbol=pair,
+            interval_minutes=cfg_data.interval_minutes,
+            dir=cfg_data.dir,
+            lookback_hours=getattr(cfg_data, 'lookback_hours', None),
+            futures_path=None
+        )
+
+        df_extra = load_candles(temp_cfg).sort_values('timestamp')
+
+        # Prefix columns to avoid collisions
+        prefix = pair.lower()
+        df_extra = df_extra.add_prefix(prefix + "_")
+
+        # Restore timestamp column name for merge_asof
+        df_extra.rename(columns={prefix + "_timestamp": "timestamp"}, inplace=True)
+
+        merged = pd.merge_asof(
+            merged.sort_values("timestamp"),
+            df_extra.sort_values("timestamp"),
+            on="timestamp",
+            direction="backward"
+        )
+
+    return merged
+
+
 def load_candles_for_training(data_dir, pair_name, interval_minutes):
-    filename = f"{pair_name}_{interval_minutes}min.csv"
-    path = os.path.join(data_dir, filename)
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"Candle file not found: {path}")
-    df = pd.read_csv(path)
-    # ensure consistent column names
+    """
+    Load SOL (or any pair) and merge BTC + ETH candles so that
+    features.py can compute lagged BTC/ETH features.
+    """
+    class Cfg:
+        def __init__(self, symbol, interval_minutes, dir):
+            self.symbol = symbol
+            self.interval_minutes = interval_minutes
+            self.dir = dir
+            self.lookback_hours = None
+            self.futures_path = None
+
+    cfg = Cfg(pair_name, interval_minutes, data_dir)
+
+    # Merge BTC + ETH into the main pair
+    df = load_multi_asset_candles(cfg, extra_pairs=["BTC", "ETH"])
+
+    # Ensure consistent column names
     df.rename(columns=str.lower, inplace=True)
+
     return df
 
 
@@ -199,6 +253,17 @@ def load_multi_pair_candles(cfg_data) -> pd.DataFrame:
     for sym in symbols:
         leg = _load_pair_ohlcv(cfg_data.dir, sym, interval)
         merged = leg if merged is None else pd.merge(merged, leg, on='timestamp', how='inner')
+
+    # === Add technical indicators for each pair automatically ===
+    from .features import add_technical_features_for
+
+    tech_parts = [merged]
+    for sym in symbols:
+        prefix = sym.lower()
+        tech = add_technical_features_for(merged, prefix)
+        tech_parts.append(tech)
+
+    merged = pd.concat(tech_parts, axis=1)
 
     target_symbol = getattr(cfg_data, 'target_symbol', None)
     reciprocal_source = getattr(cfg_data, 'reciprocal_source', None)

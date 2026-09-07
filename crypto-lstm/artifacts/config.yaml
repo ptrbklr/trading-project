@@ -1,0 +1,67 @@
+!!python/object:config.schema.Config
+artifacts: !!python/object:config.schema.ArtifactsConfig
+  base_dir: artifacts
+  save_best_only: true
+  save_every_n_epochs: 10
+data: !!python/object:config.schema.DataConfig
+  add_features: true
+  close_col: null
+  col_names: time,open,high,low,close,volume,trades
+  date_col: null
+  dir: /Volumes/ext-data/Python/Projects/trading-project/crypto-lstm/data/candles
+  futures_columns: null
+  futures_path: null
+  interval_minutes: 15
+  lookback_hours: null
+  predict_returns: true
+  reciprocal_source: SOLEUR
+  symbol: null
+  symbols:
+  - BTC
+  - ETH
+  - SOL
+  target_symbol: SOL
+  train_split: 0.8
+experiment_name: btceth_lstm_15min_v1
+loss: !!python/object:config.schema.LossConfig
+  classification_weight: 0.1
+  dir_deadband: 0.1
+  directional_alpha: 0.5
+  directional_weight: 0.2
+  mae_weight: 0.3
+  mse_weight: 0.5
+  type: hybrid
+model: !!python/object:config.schema.ModelConfig
+  attention: true
+  classification_head: true
+  dropout: 0.2
+  hidden_size: 256
+  num_layers: 3
+  seq_len: 60
+  type: lstm
+training: !!python/object:config.schema.TrainingConfig
+  batch_size: 64
+  early_stopping: !!python/object:config.schema.EarlyStoppingConfig
+    enabled: true
+    min_delta: 0.0001
+    patience: 15
+  ensemble_weight: 0.5
+  epochs: 100
+  grad_clip: 1.0
+  lr: 0.001
+  optimizer: adam
+  scheduler: !!python/object:config.schema.SchedulerConfig
+    factor: 0.5
+    patience: 10
+    type: reduce_on_plateau
+  seed: 42
+  use_xgboost: true
+  xgboost:
+    colsample_bytree: 0.8
+    early_stopping_rounds: 20
+    learning_rate: 0.05
+    max_depth: 8
+    n_estimators: 150
+    random_state: 42
+    subsample: 0.8
+    verbose: true

@@ -1,0 +1,126 @@
+data:
+  dir: /Volumes/ext-data/Python/Projects/trading-project/crypto-lstm/data/candles
+
+  # Multi-pair loader configuration
+  symbols: ["BTC", "ETH", "SOL"]
+  target_symbol: "SOL"
+  reciprocal_source: "SOLEUR"
+
+  interval_minutes: 5
+  lookback_hours: 720        # 30 days of 5m candles (optimal for regime learning)
+
+  date_col: null
+  close_col: null
+  col_names: "time,open,high,low,close,volume,trades"
+
+  add_features: true         # loader will compute BTC/ETH/SOL technicals
+  train_split: 0.8
+  predict_returns: true
+
+features:
+  include:
+
+    # === SOL base returns ===
+    - log_return
+    - return_lag_2
+    - return_lag_3
+    - return_lag_5
+
+    # === BTC returns (strongest predictor) ===
+    - btc_log_return
+    - btc_return_lag_2
+    - btc_return_lag_3
+    - btc_return_lag_5
+    - btc_return_lag_10s
+    - btc_return_lag_20s
+    - btc_return_lag_30s
+
+    # === ETH returns (second strongest predictor) ===
+    - eth_log_return
+    - eth_return_lag_2
+    - eth_return_lag_3
+    - eth_return_lag_5
+    - eth_return_lag_10s
+    - eth_return_lag_20s
+    - eth_return_lag_30s
+
+    # === Volatility regime ===
+    - volatility_20
+    - btc_vol_ma_20
+    - btc_vol_ma20_lag_10s
+    - btc_vol_ma20_lag_20s
+    - eth_vol_ma_20
+    - eth_vol_ma20_lag_10s
+    - eth_vol_ma20_lag_20s
+
+    # === Momentum propagation ===
+    - btc_momentum_10
+    - btc_momentum10_lag_10s
+    - btc_momentum10_lag_20s
+    - eth_momentum_10
+
+    # === Volume / trade pressure ===
+    - volume_delta
+    - btc_volume_lag_10s
+    - btc_volume_lag_20s
+    - eth_volume_delta
+    - eth_volume_delta_lag_10s
+    - eth_volume_delta_lag_20s
+    - eth_trades
+    - eth_trades_lag_10s
+    - eth_trades_lag_20s
+
+    # === Regime features ===
+    - return_vol_norm
+    - btc_eth_corr_20
+
+experiment_name: "sol_5min_lstm"
+
+data:
+  dir: /Volumes/ext-data/Python/Projects/trading-project/crypto-lstm/data/candles
+  symbol: "SOL"
+  interval_minutes: 5
+  date_col: null
+  close_col: null
+  col_names: "time,open,high,low,close,volume,trades"
+  add_features: true
+  train_split: 0.8
+  lookback_hours: 720
+  predict_returns: true
+
+model:
+  type: "lstm"
+  hidden_size: 128
+  num_layers: 2
+  dropout: 0.15
+  seq_len: 60
+  attention: true
+
+training:
+  epochs: 40
+  batch_size: 256
+  lr: 0.0007
+  grad_clip: 1.0
+  optimizer: "adam"
+
+  scheduler:
+    type: reduce_on_plateau
+    factor: 0.5
+    patience: 10
+
+  early_stopping:
+    enabled: true
+    patience: 10
+    min_delta: 0.0
+
+loss:
+  type: "mse"
+  mse_weight: 1.0
+  mae_weight: 0.0
+  directional_weight: 0.0
+  directional_alpha: 0.0
+
+artifacts:
+  base_dir: "models"
+  save_best_only: true
+  save_every_n_epochs: 5

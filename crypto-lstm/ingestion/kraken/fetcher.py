@@ -28,7 +28,7 @@ class KrakenFetcher:
     def incremental_update(self):
         existing = self.storage.load()
         if not existing:
-            return self.full_fetch(days=60)
+            return self.full_fetch(days=120)
 
         latest_datetime = max(t[2] for t in existing)
         latest_ts = int(latest_datetime.timestamp())
@@ -58,7 +58,7 @@ class KrakenFetcher:
         self.storage.save(all_trades)
         return all_trades
 
-    def full_fetch(self, days=60):
+    def full_fetch(self, days=120):
         # 1. Compute start timestamp (naive datetime)
         start = (datetime.now(timezone.utc) - timedelta(days=days)).replace(tzinfo=None)
         since = int(start.timestamp())

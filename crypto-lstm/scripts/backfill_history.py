@@ -9,9 +9,9 @@ from ingestion.kraken.fetcher import KrakenFetcher
 from ingestion.kraken.metadata import normalize_pair_name, resolve_kraken_pair
 
 # bulk historical OHLCVT dump ends 2026-03-31 23:00 UTC; backfill from there to now
-GAP_START_TS = 1774998000
+GAP_START_TS = 1788476400
 
-PAIRS = ["BTC", "ETH", "ETHBTC", "BTCUSD", "ETHUSD"]
+PAIRS = ["SOLEUR", "BTC", "ETH"]  # BTC/EUR, ETH/EUR, native ETH/BTC, and USD legs for relative-strength features
 
 for symbol in PAIRS:
     pair = resolve_kraken_pair(symbol)

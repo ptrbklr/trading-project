@@ -2,7 +2,7 @@
 experiment_name: btceth_lstm_1440min_v1
 
 data:
-  dir: data/candles
+  dir: /Volumes/ext-data/Python/Projects/trading-project/crypto-lstm/data/candles
   symbols: ["BTC", "ETH", "ETHBTC", "BTCUSD", "ETHUSD"]   # BTC/EUR, ETH/EUR, native ETH/BTC, and USD legs for relative-strength features
   target_symbol: "BTCETH"             # BTC priced in ETH, derived as the reciprocal of ETHBTC
   reciprocal_source: "ETHBTC"

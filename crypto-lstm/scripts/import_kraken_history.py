@@ -17,12 +17,12 @@ RAW_DIR = PROJECT_ROOT / "data/raw"
 PAIR_DUMPS = {
     "BTC": "XBTEUR",
     "ETH": "ETHEUR",
-    "ETHBTC": "ETHXBT",
-    "BTCUSD": "XBTUSD",
-    "ETHUSD": "ETHUSD",
+    "SOL": "SOLEUR",
+    #"BTCUSD": "XBTUSD",
+    #"ETHUSD": "ETHUSD",
 }
-INTERVALS = [1, 5, 15, 60, 1440]
-YEARS_BACK = 5
+INTERVALS = [5,15, 60, 1440]
+YEARS_BACK = 2
 COLUMNS = ["timestamp", "open", "high", "low", "close", "volume", "trades"]
 
 

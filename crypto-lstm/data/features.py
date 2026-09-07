@@ -12,6 +12,55 @@ def add_technical_features(df: pd.DataFrame) -> pd.DataFrame:
     df['return_lag_2'] = df['log_return'].shift(1)
     df['return_lag_3'] = df['log_return'].shift(2)
     df['return_lag_5'] = df['log_return'].shift(4)
+    # === BTC/ETH Lagged Features (Lead-Lag Block) ===
+    # These assume your merged dataframe already contains:
+    # btc_log_return, eth_log_return, btc_volume, eth_volume_delta,
+    # btc_vol_ma_20, eth_vol_ma_20, btc_momentum_10, eth_trades
+
+
+    df['btc_return_lag_2'] = df['btc_log_return'].shift(1)
+    df['btc_return_lag_3'] = df['btc_log_return'].shift(2)
+    df['btc_return_lag_5'] = df['btc_log_return'].shift(4)
+
+    df['eth_return_lag_2'] = df['eth_log_return'].shift(1)
+    df['eth_return_lag_3'] = df['eth_log_return'].shift(2)
+    df['eth_return_lag_5'] = df['eth_log_return'].shift(4)
+
+    if 'btc_log_return' in df.columns:
+        df['btc_return_lag_10s'] = df['btc_log_return'].shift(10)
+        df['btc_return_lag_20s'] = df['btc_log_return'].shift(20)
+        df['btc_return_lag_30s'] = df['btc_log_return'].shift(30)
+
+    if 'eth_log_return' in df.columns:
+        df['eth_return_lag_10s'] = df['eth_log_return'].shift(10)
+        df['eth_return_lag_20s'] = df['eth_log_return'].shift(20)
+        df['eth_return_lag_30s'] = df['eth_log_return'].shift(30)
+
+    if 'btc_volume' in df.columns:
+        df['btc_volume_lag_10s'] = df['btc_volume'].shift(10)
+        df['btc_volume_lag_20s'] = df['btc_volume'].shift(20)
+
+    
+    if 'eth_volume_delta' in df.columns:
+        df['eth_volume_delta_lag_10s'] = df['eth_volume_delta'].shift(10)
+        df['eth_volume_delta_lag_20s'] = df['eth_volume_delta'].shift(20)
+
+    if 'btc_vol_ma_20' in df.columns:
+        df['btc_vol_ma20_lag_10s'] = df['btc_vol_ma_20'].shift(10)
+        df['btc_vol_ma20_lag_20s'] = df['btc_vol_ma_20'].shift(20)
+
+    if 'eth_vol_ma_20' in df.columns:
+        df['eth_vol_ma20_lag_10s'] = df['eth_vol_ma_20'].shift(10)
+        df['eth_vol_ma20_lag_20s'] = df['eth_vol_ma_20'].shift(20)
+
+    if 'btc_momentum_10' in df.columns:
+        df['btc_momentum10_lag_10s'] = df['btc_momentum_10'].shift(10)
+        df['btc_momentum10_lag_20s'] = df['btc_momentum_10'].shift(20)
+
+    if 'eth_trades' in df.columns:
+        df['eth_trades_lag_10s'] = df['eth_trades'].shift(10)
+        df['eth_trades_lag_20s'] = df['eth_trades'].shift(20)
+
     df['volatility_20'] = df['log_return'].rolling(window=20, min_periods=20).std()
     df['volume_delta'] = df['volume'].pct_change()
 
@@ -31,6 +80,8 @@ def add_technical_features(df: pd.DataFrame) -> pd.DataFrame:
     df['macd'] = macd
     df['macd_signal'] = macd.ewm(span=9, adjust=False).mean()
     df['macd_hist'] = df['macd'] - df['macd_signal']
+
+    
 
     df = df.replace([np.inf, -np.inf], np.nan)
     df = df.dropna()
@@ -74,14 +125,40 @@ def add_technical_features_for(df: pd.DataFrame, prefix: str) -> pd.DataFrame:
 
 
 def add_multi_pair_features(df: pd.DataFrame, prefixes) -> pd.DataFrame:
-    parts = [df] + [add_technical_features_for(df, prefix) for prefix in prefixes]
-    combined = pd.concat(parts, axis=1)
+    combined = df.copy()
 
     # rolling correlation regime between BTC and ETH's own returns (relative-strength context)
     if 'btc_log_return' in combined.columns and 'eth_log_return' in combined.columns:
         corr = combined['btc_log_return'].rolling(window=20, min_periods=20).corr(combined['eth_log_return'])
-        combined = pd.concat([combined, corr.rename('btc_eth_corr_20')], axis=1)
+        combined['btc_eth_corr_20'] = corr
 
     combined = combined.replace([np.inf, -np.inf], np.nan).dropna().reset_index(drop=True)
     return combined
 
+def add_minimal_features(df, prefix, window=10):
+    #suggested by opera ai to disable features
+    df = df.copy()
+    # Compute log return
+    close_col = f"{prefix}_close"
+    df[f"{prefix}_log_return"] = np.log(df[close_col] / df[close_col].shift(1))
+    
+    # Compute rolling std dev of returns for normalization
+    df[f"{prefix}_return_vol_norm"] = df[f"{prefix}_log_return"] / df[f"{prefix}_log_return"].rolling(window).std()
+    
+    # Volume percent change
+    volume_col = f"{prefix}_volume"
+    if volume_col in df.columns:
+        df[f"{prefix}_volume_change"] = df[volume_col].pct_change()
+    else:
+        df[f"{prefix}_volume_change"] = np.nan
+    
+    # Simple Moving Average (SMA)
+    df[f"{prefix}_sma"] = df[close_col].rolling(window).mean()
+    
+    # Momentum
+    df[f"{prefix}_momentum"] = df[close_col] - df[close_col].shift(window)
+    
+    # Drop initial rows with NaNs due to rolling/shift
+    df.dropna(inplace=True)
+    
+    return df

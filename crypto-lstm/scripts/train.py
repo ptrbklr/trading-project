@@ -1,7 +1,6 @@
 import argparse
 import sys
 from pathlib import Path
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = PROJECT_ROOT.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -10,6 +9,9 @@ if str(PROJECT_ROOT) not in sys.path:
 from config.schema import load_config
 from ingestion.kraken.metadata import normalize_pair_name
 from training.trainer import Trainer
+
+
+
 
 
 def parse_args():
@@ -63,6 +65,13 @@ def main():
         apply_pair_override(cfg, args.pair)
     trainer = Trainer(cfg)
     trainer.run()
+
+    # Optional: Diagnose XGBoost
+    trainer.diagnose_xgboost()
+    # After training, you can access both models
+    pytorch_model = trainer.model  # Your PyTorch model
+    xgb_model = trainer.xgb_model  # XGBoost model
+
 
 
 if __name__ == "__main__":

@@ -2,10 +2,10 @@
 experiment_name: btceth_lstm_15min_v1
 
 data:
-  dir: data/candles
-  symbols: ["BTC", "ETH", "ETHBTC", "BTCUSD", "ETHUSD"]   # BTC/EUR, ETH/EUR, native ETH/BTC, and USD legs for relative-strength features
-  target_symbol: "BTCETH"             # BTC priced in ETH, derived as the reciprocal of ETHBTC
-  reciprocal_source: "ETHBTC"
+  dir: /Volumes/ext-data/Python/Projects/trading-project/crypto-lstm/data/candles
+  symbols: ["BTC", "ETH", "SOL"]   # BTC/EUR, ETH/EUR, native ETH/BTC, and USD legs for relative-strength features
+  target_symbol: "SOL"             # BTC priced in ETH, derived as the reciprocal of ETHBTC
+  reciprocal_source: "SOLEUR"
   interval_minutes: 15
   date_col: null
   close_col: null
@@ -51,3 +51,16 @@ artifacts:
   base_dir: artifacts
   save_best_only: true
   save_every_n_epochs: 10
+
+# XGBoost configuration (at root level)
+use_xgboost: true
+ensemble_weight: 0.5
+xgboost:
+  n_estimators: 150
+  max_depth: 8
+  learning_rate: 0.05
+  subsample: 0.8
+  colsample_bytree: 0.8
+  early_stopping_rounds: 20
+  verbose: true
+  random_state: 42
