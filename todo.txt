@@ -1,0 +1,10 @@
+If you want, I can also:
+patch the entire features.py for consistency
+
+add momentum, volatility, and correlation regimes
+
+add cross‑asset causal features (BTC→SOL, ETH→SOL)
+
+add feature importance logging
+
+add walk‑forward validation
