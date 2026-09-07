@@ -4,6 +4,19 @@ import pandas as pd
 def add_technical_features(df: pd.DataFrame) -> pd.DataFrame:
     # strictly causal indicators (no future leakage)
     df = df.copy()
+    # === Compute log returns for BTC, ETH, SOL ===
+    for prefix in ["btc", "eth", "sol"]:
+        close_col = f"{prefix}_close"
+        if close_col in df.columns:
+            df[f"{prefix}_log_return"] = np.log(df[close_col] / df[close_col].shift(1))
+
+        # Basic lagged returns
+        df[f"{prefix}_return_lag_2"] = df[f"{prefix}_log_return"].shift(1)
+        df[f"{prefix}_return_lag_3"] = df[f"{prefix}_log_return"].shift(2)
+        df[f"{prefix}_return_lag_5"] = df[f"{prefix}_log_return"].shift(4)
+
+
+
     df['ma_20'] = df['close'].rolling(window=20, min_periods=20).mean()
     df['ma_50'] = df['close'].rolling(window=50, min_periods=50).mean()
     df['vol_ma_20'] = df['volume'].rolling(window=20, min_periods=20).mean()
