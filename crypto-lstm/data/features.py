@@ -4,8 +4,8 @@ import pandas as pd
 def add_technical_features(df: pd.DataFrame) -> pd.DataFrame:
     # strictly causal indicators (no future leakage)
     df = df.copy()
-    # === Compute log returns for BTC, ETH, SOL ===
-    for prefix in ["btc", "eth", "sol"]:
+    # === Compute log returns 
+    for prefix in prefixes if prefixes else []:
         close_col = f"{prefix}_close"
         if close_col in df.columns:
             df[f"{prefix}_log_return"] = np.log(df[close_col] / df[close_col].shift(1))
@@ -14,8 +14,6 @@ def add_technical_features(df: pd.DataFrame) -> pd.DataFrame:
         df[f"{prefix}_return_lag_2"] = df[f"{prefix}_log_return"].shift(1)
         df[f"{prefix}_return_lag_3"] = df[f"{prefix}_log_return"].shift(2)
         df[f"{prefix}_return_lag_5"] = df[f"{prefix}_log_return"].shift(4)
-
-
 
     df['ma_20'] = df['close'].rolling(window=20, min_periods=20).mean()
     df['ma_50'] = df['close'].rolling(window=50, min_periods=50).mean()
@@ -140,10 +138,11 @@ def add_technical_features_for(df: pd.DataFrame, prefix: str) -> pd.DataFrame:
 def add_multi_pair_features(df: pd.DataFrame, prefixes) -> pd.DataFrame:
     combined = df.copy()
 
-        # === Compute log returns + lagged returns for each asset ===
+    # === Compute log returns + lagged returns for each asset ===
     for prefix in prefixes:
         close_col = f"{prefix}_close"
         if close_col in combined.columns:
+
             # Log return
             combined[f"{prefix}_log_return"] = np.log(
                 combined[close_col] / combined[close_col].shift(1)
@@ -159,10 +158,57 @@ def add_multi_pair_features(df: pd.DataFrame, prefixes) -> pd.DataFrame:
             combined[f"{prefix}_return_lag_20s"] = combined[f"{prefix}_log_return"].shift(20)
             combined[f"{prefix}_return_lag_30s"] = combined[f"{prefix}_log_return"].shift(30)
 
+# === Prefix‑driven Lag Block (BTC/ETH/SOL or any asset in prefixes) ===
+    for prefix in prefixes:
 
-    # rolling correlation regime between BTC and ETH's own returns (relative-strength context)
+       # --- Core column names ---
+       log_ret = f"{prefix}_log_return"
+       volume = f"{prefix}_volume"
+       vol_ma20 = f"{prefix}_vol_ma_20"
+       momentum10 = f"{prefix}_momentum_10"
+       trades = f"{prefix}_trades"
+       vol_delta = f"{prefix}_volume_delta"
+
+       # --- Return lags ---
+       if log_ret in combined.columns:
+           combined[f"{prefix}_return_lag_2"] = combined[log_ret].shift(1)
+           combined[f"{prefix}_return_lag_3"] = combined[log_ret].shift(2)
+           combined[f"{prefix}_return_lag_5"] = combined[log_ret].shift(4)
+
+           combined[f"{prefix}_return_lag_10s"] = combined[log_ret].shift(10)
+           combined[f"{prefix}_return_lag_20s"] = combined[log_ret].shift(20)
+           combined[f"{prefix}_return_lag_30s"] = combined[log_ret].shift(30)
+
+       # --- Volume lags ---
+       if volume in combined.columns:
+           combined[f"{prefix}_volume_lag_10s"] = combined[volume].shift(10)
+           combined[f"{prefix}_volume_lag_20s"] = combined[volume].shift(20)
+
+       # --- Volume delta lags ---
+       if vol_delta in combined.columns:
+           combined[f"{prefix}_volume_delta_lag_10s"] = combined[vol_delta].shift(10)
+           combined[f"{prefix}_volume_delta_lag_20s"] = combined[vol_delta].shift(20)
+
+       # --- Volatility MA lags ---
+       if vol_ma20 in combined.columns:
+           combined[f"{prefix}_vol_ma20_lag_10s"] = combined[vol_ma20].shift(10)
+           combined[f"{prefix}_vol_ma20_lag_20s"] = combined[vol_ma20].shift(20)
+
+       # --- Momentum lags ---
+       if momentum10 in combined.columns:
+           combined[f"{prefix}_momentum10_lag_10s"] = combined[momentum10].shift(10)
+           combined[f"{prefix}_momentum10_lag_20s"] = combined[momentum10].shift(20)
+
+       # --- Trades lags ---
+       if trades in combined.columns:
+           combined[f"{prefix}_trades_lag_10s"] = combined[trades].shift(10)
+           combined[f"{prefix}_trades_lag_20s"] = combined[trades].shift(20)
+
+    # === BTC–ETH correlation regime ===
     if 'btc_log_return' in combined.columns and 'eth_log_return' in combined.columns:
-        corr = combined['btc_log_return'].rolling(window=20, min_periods=20).corr(combined['eth_log_return'])
+        corr = combined['btc_log_return'].rolling(window=20, min_periods=20).corr(
+            combined['eth_log_return']
+        )
         combined['btc_eth_corr_20'] = corr
 
     combined = combined.replace([np.inf, -np.inf], np.nan).dropna().reset_index(drop=True)
