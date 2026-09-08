@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-def add_technical_features(df: pd.DataFrame) -> pd.DataFrame:
+def add_technical_features(df: pd.DataFrame, prefixes=None) -> pd.DataFrame:
     # strictly causal indicators (no future leakage)
     df = df.copy()
     # === Compute log returns 
