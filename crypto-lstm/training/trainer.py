@@ -56,7 +56,10 @@ class Trainer:
         self.cfg = cfg
         self.xgb_model = None  # Add this line
         self.xgb_predictions = None  # Store XGBoost predictions
-        self.model = None  # ADD THIS LINE - store PyTorch model
+        self.model = None  # ADD THIS LINE - store PyTorch mode
+        # after self.cfg = cfg (or wherever cfg is available in __init__)
+        self.predict_returns = bool(getattr(self.cfg.data, "predict_returns", False))
+
 
         if torch.cuda.is_available():
             self.device = torch.device('cuda')
@@ -69,41 +72,84 @@ class Trainer:
         """
         Prepare data for training.
 
-        Expectations:
-        - self.cfg.data is the YAML `data` section (cfg_data).
-        - Loader returns raw, prefixed candle columns (e.g., btc_close, eth_close, sol_close).
-        - build_feature_set(df, prefixes, target_prefix) will create base features including
-          `{target_prefix}_log_return` when cfg.data.add_features is True.
-        - This method creates the shifted target `{target_prefix}_target` BEFORE scaling/sequencing.
-        - Resulting sequences and splits are stored on the trainer instance.
+        - Expects self.cfg.data to be the YAML `data` section.
+        - Loader returns raw, prefixed candle columns (canonical 'timestamp' + e.g. btc_close).
+        - build_feature_set(df, prefixes, target_prefix) creates `{target_prefix}_log_return`.
+        - This method creates `{target_prefix}_target` (shifted) BEFORE scaling/sequencing.
+        - Stores X_train, y_train, X_val, y_val and related metadata on the trainer.
         """
-        # --- Validate config data early (fail fast with clear errors) ---
+        import numpy as np
+        import pandas as pd
+
+        # --- Validate config data early (fail fast) ---
         cfg_data = self.cfg.data
         required = ["dir", "symbols", "interval_minutes", "train_split"]
         for k in required:
             if not hasattr(cfg_data, k):
                 raise ValueError(f"Missing required cfg.data field: {k}")
 
-        # Resolve symbols and target prefix
+        # Resolve symbols and target symbol
         symbols = list(cfg_data.symbols)
         if len(symbols) == 0:
             raise ValueError("cfg.data.symbols must contain at least one symbol")
         target_symbol = getattr(cfg_data, "target_symbol", None)
-        target_prefix = (target_symbol or symbols[0]).lower()
 
         # --- Load raw, prefixed candles ---
         df = load_multi_pair_candles(cfg_data)
 
-        # --- Optionally build features (feature builder is responsible for creating log returns) ---
+        # --- Normalize symbol strings into short prefixes ---
+        def _normalize_symbol_to_prefix(sym: str) -> str:
+            s = str(sym).lower()
+            for suf in ("usdt", "usd", "eur", "-usd", "_usd", "-usdt", "_usdt", "-eur", "_eur"):
+                if s.endswith(suf):
+                    s = s[: -len(suf)]
+                    break
+            s = "".join(ch for ch in s if ch.isalnum())
+            return s
+
+        # Normalize and infer prefixes
+        prefixes = [_normalize_symbol_to_prefix(s) for s in symbols]
+        if target_symbol:
+            target_prefix = _normalize_symbol_to_prefix(target_symbol)
+        else:
+            target_prefix = prefixes[0]
+
+        # If target_prefix not in prefixes, try to infer from df columns
+        if target_prefix not in prefixes:
+            cols = df.columns.tolist()
+            inferred = None
+            for p in prefixes:
+                if any(c.startswith(p + "_") for c in cols):
+                    inferred = p
+                    break
+            if inferred:
+                target_prefix = inferred
+            else:
+                prefixes.append(target_prefix)
+
+        # --- Import feature builder lazily (avoid circular import issues) ---
+        try:
+            from data.features import build_feature_set
+        except Exception:
+            try:
+                from features import build_feature_set
+            except Exception:
+                try:
+                    from ..data.features import build_feature_set
+                except Exception as exc:
+                    raise ImportError("Could not import build_feature_set from data.features") from exc
+
+        # --- Optionally build features (feature builder should create log returns) ---
         if getattr(cfg_data, "add_features", False):
-            prefixes = [s.lower() for s in symbols]
             df = build_feature_set(df, prefixes=prefixes, target_prefix=target_prefix)
 
-        # Ensure the base log-return column exists after feature building
+        # Ensure the base log-return column exists
         base_target_col = f"{target_prefix}_log_return"
         if base_target_col not in df.columns:
-            raise ValueError(f"Missing required column '{base_target_col}' after feature building. "
-                             "Ensure build_feature_set creates log returns or set add_features=True.")
+            raise ValueError(
+                f"Missing required column '{base_target_col}' after feature building. "
+                "Ensure build_feature_set creates log returns or set add_features=True."
+            )
 
         # --- Create the explicit shifted target column BEFORE scaling/sequencing ---
         target_col = f"{target_prefix}_target"
@@ -113,12 +159,41 @@ class Trainer:
         df = df.dropna().reset_index(drop=True)
 
         # --- Split features / target ---
-        # Keep the full dataframe columns for reference; build X, y for modeling
         if target_col not in df.columns:
             raise ValueError(f"Target column '{target_col}' missing after shift operation.")
 
+        # Keep a copy of feature columns for metadata before we drop non-numeric columns
+        full_feature_columns = [c for c in df.columns if c != target_col]
+
+        # Build X_df and y
         X_df = df.drop(columns=[target_col])
         y = df[target_col].values
+
+        # --- Prepare feature matrix: drop non-numeric columns (timestamp etc.) ---
+        non_numeric = X_df.select_dtypes(exclude=[np.number]).columns.tolist()
+        if non_numeric:
+            # temporary debug print; remove when stable
+            print(f"DEBUG: dropping non-numeric columns before scaling: {non_numeric}")
+            X_df = X_df.drop(columns=non_numeric, errors="ignore")
+
+        if X_df.shape[1] == 0:
+            raise ValueError("No numeric feature columns available after dropping non-numeric columns. Check feature builder output.")
+
+        # Convert to numeric and handle NaNs
+        X_df = X_df.apply(pd.to_numeric, errors="coerce")
+
+        # Align y with X_df if rows are dropped below
+        # (we will update y after any dropna operations)
+        total_cells = X_df.size
+        na_cells = int(X_df.isna().sum().sum())
+        if na_cells > 0:
+            if na_cells / max(1, total_cells) < 0.01:
+                X_df = X_df.fillna(X_df.median())
+            else:
+                # drop rows with NaNs and align y
+                mask = ~X_df.isna().any(axis=1)
+                X_df = X_df.loc[mask].reset_index(drop=True)
+                y = pd.Series(y).loc[mask].values
 
         # --- Scale features ---
         from sklearn.preprocessing import StandardScaler
@@ -137,7 +212,6 @@ class Trainer:
                 ys.append(y[i + seq_length])
             return np.array(Xs), np.array(ys)
 
-        import numpy as np
         X_seq, y_seq = create_sequences(X_scaled, y, seq_len)
 
         if len(X_seq) == 0:
@@ -159,8 +233,10 @@ class Trainer:
 
         # --- Save metadata for later use (column names, target index, etc.) ---
         self.feature_columns = list(X_df.columns)
+        self.df = X_df.copy()
         self.target_column = target_col
         self.seq_len = seq_len
+        self.full_feature_columns = full_feature_columns
 
         # Optionally convert to torch tensors here if training loop expects tensors
         if getattr(self.cfg.training, "use_torch", False):
@@ -170,11 +246,86 @@ class Trainer:
             self.X_val = torch.tensor(self.X_val, dtype=torch.float32)
             self.y_val = torch.tensor(self.y_val, dtype=torch.float32)
 
+
+
+
+
+
+
+
+
+
+
+        #START
+        # --- Create train/val loaders (torch DataLoader if use_torch, else numpy batches) ---
+        batch_size = int(getattr(self.cfg.training, "batch_size", 64))
+        use_torch = bool(getattr(self.cfg.training, "use_torch", False))
+
+        if use_torch:
+            import torch
+            from torch.utils.data import TensorDataset, DataLoader
+
+            # Ensure numpy arrays, then convert to torch tensors
+            Xtr = self.X_train if isinstance(self.X_train, (np.ndarray,)) else np.array(self.X_train)
+            ytr = self.y_train if isinstance(self.y_train, (np.ndarray,)) else np.array(self.y_train)
+            Xv = self.X_val if isinstance(self.X_val, (np.ndarray,)) else np.array(self.X_val)
+            yv = self.y_val if isinstance(self.y_val, (np.ndarray,)) else np.array(self.y_val)
+
+            Xtr_t = torch.tensor(Xtr, dtype=torch.float32)
+            ytr_t = torch.tensor(ytr, dtype=torch.float32)
+            Xv_t = torch.tensor(Xv, dtype=torch.float32)
+            yv_t = torch.tensor(yv, dtype=torch.float32)
+
+            train_dataset = TensorDataset(Xtr_t, ytr_t)
+            val_dataset = TensorDataset(Xv_t, yv_t)
+
+            self.train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=False)
+            self.val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, drop_last=False)
+
+            # Keep tensor references for other code
+            self.X_train = Xtr_t
+            self.y_train = ytr_t
+            self.X_val = Xv_t
+            self.y_val = yv_t
+
+        else:
+            # Numpy-based loader: produce a list of (xb, yb) numpy batches so `for xb, yb in self.train_loader:` works
+            import numpy as _np
+
+            def _make_numpy_batches(X, y, batch_size, shuffle=False):
+                n = len(X)
+                idx = _np.arange(n)
+                if shuffle:
+                    _np.random.shuffle(idx)
+                batches = []
+                for i in range(0, n, batch_size):
+                    batch_idx = idx[i : i + batch_size]
+                    batches.append((X[batch_idx], y[batch_idx]))
+                return batches
+
+            self.train_loader = _make_numpy_batches(self.X_train, self.y_train, batch_size, shuffle=True)
+            self.val_loader = _make_numpy_batches(self.X_val, self.y_val, batch_size, shuffle=False)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        
         # Final sanity checks
         assert len(self.X_train) > 0 and len(self.X_val) > 0, "Empty train or validation set after split"
         assert self.X_train.shape[1] == seq_len, "Sequence length mismatch in training data"
 
-        # Return shapes for convenience (optional)
+        # Return shapes for convenience
         return {
             "X_train_shape": self.X_train.shape,
             "y_train_shape": self.y_train.shape,
@@ -182,7 +333,7 @@ class Trainer:
             "y_val_shape": self.y_val.shape,
             "feature_count": len(self.feature_columns),
             "sequence_length": seq_len,
-    }
+        }
     
     def run(self):
         seed = getattr(self.cfg.training, 'seed', 42)

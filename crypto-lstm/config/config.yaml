@@ -2,7 +2,7 @@ data:
   dir: /Volumes/ext-data/Python/Projects/trading-project/crypto-lstm/data/candles
 
   # Multi-pair loader configuration
-  symbols: ["SOLEUR", "ETHEUR", "BTCEUR"]
+  symbols: ["SOL", "ETH", "BTC"]
   target_symbol: "SOL"
   reciprocal_source: "SOLEUR"
 
@@ -85,11 +85,13 @@ model:
   attention: true
 
 training:
+  use_torch: true
   epochs: 40
-  batch_size: 256
+  batch_size: 64
   lr: 0.0007
   grad_clip: 1.0
   optimizer: "adam"
+  sequence_length: 64
 
   scheduler:
     type: reduce_on_plateau
