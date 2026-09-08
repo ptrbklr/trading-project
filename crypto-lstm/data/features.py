@@ -1,243 +1,190 @@
 import numpy as np
 import pandas as pd
 
-def add_technical_features(df: pd.DataFrame) -> pd.DataFrame:
-    # strictly causal indicators (no future leakage)
-    df = df.copy()
-    # === Compute log returns 
-    for prefix in prefixes if prefixes else []:
-        close_col = f"{prefix}_close"
-        if close_col in df.columns:
-            df[f"{prefix}_log_return"] = np.log(df[close_col] / df[close_col].shift(1))
 
-        # Basic lagged returns
-        df[f"{prefix}_return_lag_2"] = df[f"{prefix}_log_return"].shift(1)
-        df[f"{prefix}_return_lag_3"] = df[f"{prefix}_log_return"].shift(2)
-        df[f"{prefix}_return_lag_5"] = df[f"{prefix}_log_return"].shift(4)
+def add_base_features(df: pd.DataFrame, prefixes) -> pd.DataFrame:
+    """
+    Base per-asset features: log returns, volume delta, volatility, RSI, MACD, etc.
+    All prefix-safe: btc_, eth_, sol_, ...
+    """
+    out = df.copy()
 
-    df['ma_20'] = df['close'].rolling(window=20, min_periods=20).mean()
-    df['ma_50'] = df['close'].rolling(window=50, min_periods=50).mean()
-    df['vol_ma_20'] = df['volume'].rolling(window=20, min_periods=20).mean()
+    for prefix in prefixes:
+        close = f"{prefix}_close"
+        volume = f"{prefix}_volume"
 
-    df['log_return'] = np.log(df['close'] / df['close'].shift(1))
-    df['return_lag_2'] = df['log_return'].shift(1)
-    df['return_lag_3'] = df['log_return'].shift(2)
-    df['return_lag_5'] = df['log_return'].shift(4)
-    # === BTC/ETH Lagged Features (Lead-Lag Block) ===
-    # These assume your merged dataframe already contains:
-    # btc_log_return, eth_log_return, btc_volume, eth_volume_delta,
-    # btc_vol_ma_20, eth_vol_ma_20, btc_momentum_10, eth_trades
+        if close in out.columns:
+            # Log return
+            out[f"{prefix}_log_return"] = np.log(
+                out[close] / out[close].shift(1)
+            )
 
+            # 20-bar volatility of log returns
+            out[f"{prefix}_volatility_20"] = (
+                out[f"{prefix}_log_return"]
+                .rolling(window=20, min_periods=20)
+                .std()
+            )
 
-    df['btc_return_lag_2'] = df['btc_log_return'].shift(1)
-    df['btc_return_lag_3'] = df['btc_log_return'].shift(2)
-    df['btc_return_lag_5'] = df['btc_log_return'].shift(4)
+            # Return normalized by prior-bar volatility
+            out[f"{prefix}_return_vol_norm"] = (
+                out[f"{prefix}_log_return"]
+                / out[f"{prefix}_volatility_20"].shift(1)
+            )
 
-    df['eth_return_lag_2'] = df['eth_log_return'].shift(1)
-    df['eth_return_lag_3'] = df['eth_log_return'].shift(2)
-    df['eth_return_lag_5'] = df['eth_log_return'].shift(4)
+            # RSI 14
+            delta = out[close].diff()
+            gain = (
+                delta.clip(lower=0)
+                .rolling(window=14, min_periods=14)
+                .mean()
+            )
+            loss = (
+                -delta.clip(upper=0)
+                .rolling(window=14, min_periods=14)
+                .mean()
+            )
+            rs = gain / loss.replace(0, np.nan)
+            out[f"{prefix}_rsi_14"] = 100 - (100 / (1 + rs))
 
-    if 'btc_log_return' in df.columns:
-        df['btc_return_lag_10s'] = df['btc_log_return'].shift(10)
-        df['btc_return_lag_20s'] = df['btc_log_return'].shift(20)
-        df['btc_return_lag_30s'] = df['btc_log_return'].shift(30)
+            # MACD
+            ema_12 = out[close].ewm(span=12, adjust=False).mean()
+            ema_26 = out[close].ewm(span=26, adjust=False).mean()
+            macd = ema_12 - ema_26
+            out[f"{prefix}_macd"] = macd
+            out[f"{prefix}_macd_signal"] = macd.ewm(span=9, adjust=False).mean()
+            out[f"{prefix}_macd_hist"] = (
+                out[f"{prefix}_macd"] - out[f"{prefix}_macd_signal"]
+            )
 
-    if 'eth_log_return' in df.columns:
-        df['eth_return_lag_10s'] = df['eth_log_return'].shift(10)
-        df['eth_return_lag_20s'] = df['eth_log_return'].shift(20)
-        df['eth_return_lag_30s'] = df['eth_log_return'].shift(30)
+        if volume in out.columns:
+            # Volume delta (pct change)
+            out[f"{prefix}_volume_delta"] = out[volume].pct_change()
 
-    if 'btc_volume' in df.columns:
-        df['btc_volume_lag_10s'] = df['btc_volume'].shift(10)
-        df['btc_volume_lag_20s'] = df['btc_volume'].shift(20)
+            # 20-bar volume moving average
+            out[f"{prefix}_vol_ma_20"] = (
+                out[volume].rolling(window=20, min_periods=20).mean()
+            )
 
-    
-    if 'eth_volume_delta' in df.columns:
-        df['eth_volume_delta_lag_10s'] = df['eth_volume_delta'].shift(10)
-        df['eth_volume_delta_lag_20s'] = df['eth_volume_delta'].shift(20)
+    # BTC–ETH correlation regime (if both exist)
+    if "btc_log_return" in out.columns and "eth_log_return" in out.columns:
+        out["btc_eth_corr_20"] = (
+            out["btc_log_return"]
+            .rolling(window=20, min_periods=20)
+            .corr(out["eth_log_return"])
+        )
 
-    if 'btc_vol_ma_20' in df.columns:
-        df['btc_vol_ma20_lag_10s'] = df['btc_vol_ma_20'].shift(10)
-        df['btc_vol_ma20_lag_20s'] = df['btc_vol_ma_20'].shift(20)
-
-    if 'eth_vol_ma_20' in df.columns:
-        df['eth_vol_ma20_lag_10s'] = df['eth_vol_ma_20'].shift(10)
-        df['eth_vol_ma20_lag_20s'] = df['eth_vol_ma_20'].shift(20)
-
-    if 'btc_momentum_10' in df.columns:
-        df['btc_momentum10_lag_10s'] = df['btc_momentum_10'].shift(10)
-        df['btc_momentum10_lag_20s'] = df['btc_momentum_10'].shift(20)
-
-    if 'eth_trades' in df.columns:
-        df['eth_trades_lag_10s'] = df['eth_trades'].shift(10)
-        df['eth_trades_lag_20s'] = df['eth_trades'].shift(20)
-
-    df['volatility_20'] = df['log_return'].rolling(window=20, min_periods=20).std()
-    df['volume_delta'] = df['volume'].pct_change()
-
-    # normalize by *prior*-bar volatility (shifted) so the denominator never includes
-    # the return it's normalizing, keeping the target stationary across volatility regimes
-    df['return_vol_norm'] = df['log_return'] / df['volatility_20'].shift(1)
-
-    delta = df['close'].diff()
-    gain = delta.clip(lower=0).rolling(window=14, min_periods=14).mean()
-    loss = (-delta.clip(upper=0)).rolling(window=14, min_periods=14).mean()
-    rs = gain / loss.replace(0, np.nan)
-    df['rsi_14'] = 100 - (100 / (1 + rs))
-
-    ema_12 = df['close'].ewm(span=12, adjust=False).mean()
-    ema_26 = df['close'].ewm(span=26, adjust=False).mean()
-    macd = ema_12 - ema_26
-    df['macd'] = macd
-    df['macd_signal'] = macd.ewm(span=9, adjust=False).mean()
-    df['macd_hist'] = df['macd'] - df['macd_signal']
-
-    
-
-    df = df.replace([np.inf, -np.inf], np.nan)
-    df = df.dropna()
-    return df
-
-
-def add_technical_features_for(df: pd.DataFrame, prefix: str) -> pd.DataFrame:
-    # same causal indicators as add_technical_features, computed for one prefixed pair (e.g. "btc_", "btceth_")
-    close = df[f'{prefix}_close']
-    volume = df[f'{prefix}_volume']
-
-    out = pd.DataFrame(index=df.index)
-    out[f'{prefix}_ma_20'] = close.rolling(window=20, min_periods=20).mean()
-    out[f'{prefix}_ma_50'] = close.rolling(window=50, min_periods=50).mean()
-    out[f'{prefix}_vol_ma_20'] = volume.rolling(window=20, min_periods=20).mean()
-
-    log_return = np.log(close / close.shift(1))
-    out[f'{prefix}_log_return'] = log_return
-    out[f'{prefix}_return_lag_2'] = log_return.shift(1)
-    out[f'{prefix}_return_lag_3'] = log_return.shift(2)
-    out[f'{prefix}_return_lag_5'] = log_return.shift(4)
-    volatility_20 = log_return.rolling(window=20, min_periods=20).std()
-    out[f'{prefix}_volatility_20'] = volatility_20
-    out[f'{prefix}_volume_delta'] = volume.pct_change()
-    out[f'{prefix}_return_vol_norm'] = log_return / volatility_20.shift(1)
-    out[f'{prefix}_momentum_10'] = np.log(close / close.shift(10))
-
-    delta = close.diff()
-    gain = delta.clip(lower=0).rolling(window=14, min_periods=14).mean()
-    loss = (-delta.clip(upper=0)).rolling(window=14, min_periods=14).mean()
-    rs = gain / loss.replace(0, np.nan)
-    out[f'{prefix}_rsi_14'] = 100 - (100 / (1 + rs))
-
-    ema_12 = close.ewm(span=12, adjust=False).mean()
-    ema_26 = close.ewm(span=26, adjust=False).mean()
-    macd = ema_12 - ema_26
-    out[f'{prefix}_macd'] = macd
-    out[f'{prefix}_macd_signal'] = macd.ewm(span=9, adjust=False).mean()
-    out[f'{prefix}_macd_hist'] = macd - out[f'{prefix}_macd_signal']
     return out
 
 
-def add_multi_pair_features(df: pd.DataFrame, prefixes) -> pd.DataFrame:
-    combined = df.copy()
+def add_lagged_features(df: pd.DataFrame, prefixes) -> pd.DataFrame:
+    """
+    Prefix-safe lag block for all assets in `prefixes`.
+    Includes lags for returns, volume, volume_delta, vol_ma_20, momentum_10, trades.
+    """
+    out = df.copy()
 
-    # === Compute log returns + lagged returns for each asset ===
     for prefix in prefixes:
-        close_col = f"{prefix}_close"
-        if close_col in combined.columns:
+        log_ret = f"{prefix}_log_return"
+        volume = f"{prefix}_volume"
+        vol_delta = f"{prefix}_volume_delta"
+        vol_ma20 = f"{prefix}_vol_ma_20"
+        momentum10 = f"{prefix}_momentum_10"
+        trades = f"{prefix}_trades"
 
-            # Log return
-            combined[f"{prefix}_log_return"] = np.log(
-                combined[close_col] / combined[close_col].shift(1)
-            )
+        # --- Return lags ---
+        if log_ret in out.columns:
+            out[f"{prefix}_return_lag_2"] = out[log_ret].shift(1)
+            out[f"{prefix}_return_lag_3"] = out[log_ret].shift(2)
+            out[f"{prefix}_return_lag_5"] = out[log_ret].shift(4)
 
-            # Lagged returns
-            combined[f"{prefix}_return_lag_2"] = combined[f"{prefix}_log_return"].shift(1)
-            combined[f"{prefix}_return_lag_3"] = combined[f"{prefix}_log_return"].shift(2)
-            combined[f"{prefix}_return_lag_5"] = combined[f"{prefix}_log_return"].shift(4)
+            out[f"{prefix}_return_lag_10s"] = out[log_ret].shift(10)
+            out[f"{prefix}_return_lag_20s"] = out[log_ret].shift(20)
+            out[f"{prefix}_return_lag_30s"] = out[log_ret].shift(30)
 
-            # Longer lags (10s, 20s, 30s)
-            combined[f"{prefix}_return_lag_10s"] = combined[f"{prefix}_log_return"].shift(10)
-            combined[f"{prefix}_return_lag_20s"] = combined[f"{prefix}_log_return"].shift(20)
-            combined[f"{prefix}_return_lag_30s"] = combined[f"{prefix}_log_return"].shift(30)
+        # --- Volume lags ---
+        if volume in out.columns:
+            out[f"{prefix}_volume_lag_10s"] = out[volume].shift(10)
+            out[f"{prefix}_volume_lag_20s"] = out[volume].shift(20)
 
-# === Prefix‑driven Lag Block (BTC/ETH/SOL or any asset in prefixes) ===
-    for prefix in prefixes:
+        # --- Volume delta lags ---
+        if vol_delta in out.columns:
+            out[f"{prefix}_volume_delta_lag_10s"] = out[vol_delta].shift(10)
+            out[f"{prefix}_volume_delta_lag_20s"] = out[vol_delta].shift(20)
 
-       # --- Core column names ---
-       log_ret = f"{prefix}_log_return"
-       volume = f"{prefix}_volume"
-       vol_ma20 = f"{prefix}_vol_ma_20"
-       momentum10 = f"{prefix}_momentum_10"
-       trades = f"{prefix}_trades"
-       vol_delta = f"{prefix}_volume_delta"
+        # --- Volatility MA lags ---
+        if vol_ma20 in out.columns:
+            out[f"{prefix}_vol_ma20_lag_10s"] = out[vol_ma20].shift(10)
+            out[f"{prefix}_vol_ma20_lag_20s"] = out[vol_ma20].shift(20)
 
-       # --- Return lags ---
-       if log_ret in combined.columns:
-           combined[f"{prefix}_return_lag_2"] = combined[log_ret].shift(1)
-           combined[f"{prefix}_return_lag_3"] = combined[log_ret].shift(2)
-           combined[f"{prefix}_return_lag_5"] = combined[log_ret].shift(4)
+        # --- Momentum lags ---
+        if momentum10 in out.columns:
+            out[f"{prefix}_momentum10_lag_10s"] = out[momentum10].shift(10)
+            out[f"{prefix}_momentum10_lag_20s"] = out[momentum10].shift(20)
 
-           combined[f"{prefix}_return_lag_10s"] = combined[log_ret].shift(10)
-           combined[f"{prefix}_return_lag_20s"] = combined[log_ret].shift(20)
-           combined[f"{prefix}_return_lag_30s"] = combined[log_ret].shift(30)
+        # --- Trades lags ---
+        if trades in out.columns:
+            out[f"{prefix}_trades_lag_10s"] = out[trades].shift(10)
+            out[f"{prefix}_trades_lag_20s"] = out[trades].shift(20)
 
-       # --- Volume lags ---
-       if volume in combined.columns:
-           combined[f"{prefix}_volume_lag_10s"] = combined[volume].shift(10)
-           combined[f"{prefix}_volume_lag_20s"] = combined[volume].shift(20)
+    return out
 
-       # --- Volume delta lags ---
-       if vol_delta in combined.columns:
-           combined[f"{prefix}_volume_delta_lag_10s"] = combined[vol_delta].shift(10)
-           combined[f"{prefix}_volume_delta_lag_20s"] = combined[vol_delta].shift(20)
 
-       # --- Volatility MA lags ---
-       if vol_ma20 in combined.columns:
-           combined[f"{prefix}_vol_ma20_lag_10s"] = combined[vol_ma20].shift(10)
-           combined[f"{prefix}_vol_ma20_lag_20s"] = combined[vol_ma20].shift(20)
+def apply_target_safe_filter(df: pd.DataFrame, target_prefix: str) -> pd.DataFrame:
+    """
+    Remove any non-lagged (t=0) features for the target asset to avoid leakage.
+    Keeps only lagged / derived features.
+    """
+    out = df.copy()
 
-       # --- Momentum lags ---
-       if momentum10 in combined.columns:
-           combined[f"{prefix}_momentum10_lag_10s"] = combined[momentum10].shift(10)
-           combined[f"{prefix}_momentum10_lag_20s"] = combined[momentum10].shift(20)
+    # Columns that are raw target series at t=0
+    raw_cols = [
+        f"{target_prefix}_close",
+        f"{target_prefix}_volume",
+        f"{target_prefix}_trades",
+        f"{target_prefix}_momentum_10",
+        f"{target_prefix}_vol_ma_20",
+        f"{target_prefix}_volume_delta",
+        f"{target_prefix}_log_return",
+        f"{target_prefix}_volatility_20",
+        f"{target_prefix}_return_vol_norm",
+        f"{target_prefix}_rsi_14",
+        f"{target_prefix}_macd",
+        f"{target_prefix}_macd_signal",
+        f"{target_prefix}_macd_hist",
+    ]
 
-       # --- Trades lags ---
-       if trades in combined.columns:
-           combined[f"{prefix}_trades_lag_10s"] = combined[trades].shift(10)
-           combined[f"{prefix}_trades_lag_20s"] = combined[trades].shift(20)
+    to_drop = [c for c in raw_cols if c in out.columns]
+    out = out.drop(columns=to_drop)
 
-    # === BTC–ETH correlation regime ===
-    if 'btc_log_return' in combined.columns and 'eth_log_return' in combined.columns:
-        corr = combined['btc_log_return'].rolling(window=20, min_periods=20).corr(
-            combined['eth_log_return']
-        )
-        combined['btc_eth_corr_20'] = corr
+    return out
 
-    combined = combined.replace([np.inf, -np.inf], np.nan).dropna().reset_index(drop=True)
-    return combined
 
-def add_minimal_features(df, prefix, window=10):
-    #suggested by opera ai to disable features
-    df = df.copy()
-    # Compute log return
-    close_col = f"{prefix}_close"
-    df[f"{prefix}_log_return"] = np.log(df[close_col] / df[close_col].shift(1))
-    
-    # Compute rolling std dev of returns for normalization
-    df[f"{prefix}_return_vol_norm"] = df[f"{prefix}_log_return"] / df[f"{prefix}_log_return"].rolling(window).std()
-    
-    # Volume percent change
-    volume_col = f"{prefix}_volume"
-    if volume_col in df.columns:
-        df[f"{prefix}_volume_change"] = df[volume_col].pct_change()
-    else:
-        df[f"{prefix}_volume_change"] = np.nan
-    
-    # Simple Moving Average (SMA)
-    df[f"{prefix}_sma"] = df[close_col].rolling(window).mean()
-    
-    # Momentum
-    df[f"{prefix}_momentum"] = df[close_col] - df[close_col].shift(window)
-    
-    # Drop initial rows with NaNs due to rolling/shift
-    df.dropna(inplace=True)
-    
-    return df
+def build_feature_set(
+    df: pd.DataFrame,
+    prefixes=("btc", "eth", "sol"),
+    target_prefix="sol",
+) -> pd.DataFrame:
+    """
+    Main entry point: build full feature set with
+    - base features
+    - lagged features
+    - target-safe filtering
+    - leakage protection (no future shifts)
+    """
+    features = df.copy()
+
+    # 1. Base features (per asset)
+    features = add_base_features(features, prefixes)
+
+    # 2. Lagged features (per asset)
+    features = add_lagged_features(features, prefixes)
+
+    # 3. Target-safe filter (remove raw target t=0 features)
+    features = apply_target_safe_filter(features, target_prefix)
+
+    # 4. Clean up: remove inf, drop rows with NaNs from shifting/rolling
+    features = features.replace([np.inf, -np.inf], np.nan)
+    features = features.dropna().reset_index(drop=True)
+
+    return features
