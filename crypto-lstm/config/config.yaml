@@ -2,8 +2,9 @@ data:
   dir: /Volumes/ext-data/Python/Projects/trading-project/crypto-lstm/data/candles
 
   # Multi-pair loader configuration
-  symbols: ["SOL", "ETHEUR", "BTCEUR"]
+  symbols: ["SOLEUR", "ETHEUR", "BTCEUR"]
   target_symbol: "SOL"
+  reciprocal_source: "SOLEUR"
 
   interval_minutes: 5
   lookback_hours: 720        # 30 days of 5m candles (optimal for regime learning)

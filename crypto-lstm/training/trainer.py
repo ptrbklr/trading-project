@@ -6,7 +6,7 @@ import sys
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_absolute_error, mean_squared_error  # ← CRITICAL IMPORT
 from data.loader import load_candles, load_multi_pair_candles
-from data.features import build_feature_set
+from data.features import add_technical_features, add_multi_pair_features
 from data.scaling import fit_scalers, apply_scalers
 from data.sequences import create_sequences
 from models.factory import create_model
@@ -75,7 +75,7 @@ class Trainer:
             if target_symbol and target_symbol.upper() not in [s.upper() for s in symbols]:
                 prefixes.append(target_symbol.lower())
             if self.cfg.data.add_features:
-                df = build_feature_set(df, prefixes=prefixes, target_prefix=target_prefix)
+                df = add_multi_pair_features(df, prefixes)
             target_prefix = (target_symbol or symbols[0]).lower()
         else:
             df = load_candles(self.cfg.data)
