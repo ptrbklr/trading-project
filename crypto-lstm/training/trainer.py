@@ -66,64 +66,126 @@ class Trainer:
             self.device = torch.device('cpu')
 
     def _prepare_data(self):
-        symbols = getattr(self.cfg.data, 'symbols', None)
-        target_symbol = getattr(self.cfg.data, 'target_symbol', None)
+        """
+        Prepare data for training.
 
-        if symbols:
-            df = load_multi_pair_candles(self.cfg.data)
+        Expectations:
+        - self.cfg.data is the YAML `data` section (cfg_data).
+        - Loader returns raw, prefixed candle columns (e.g., btc_close, eth_close, sol_close).
+        - build_feature_set(df, prefixes, target_prefix) will create base features including
+          `{target_prefix}_log_return` when cfg.data.add_features is True.
+        - This method creates the shifted target `{target_prefix}_target` BEFORE scaling/sequencing.
+        - Resulting sequences and splits are stored on the trainer instance.
+        """
+        # --- Validate config data early (fail fast with clear errors) ---
+        cfg_data = self.cfg.data
+        required = ["dir", "symbols", "interval_minutes", "train_split"]
+        for k in required:
+            if not hasattr(cfg_data, k):
+                raise ValueError(f"Missing required cfg.data field: {k}")
+
+        # Resolve symbols and target prefix
+        symbols = list(cfg_data.symbols)
+        if len(symbols) == 0:
+            raise ValueError("cfg.data.symbols must contain at least one symbol")
+        target_symbol = getattr(cfg_data, "target_symbol", None)
+        target_prefix = (target_symbol or symbols[0]).lower()
+
+        # --- Load raw, prefixed candles ---
+        df = load_multi_pair_candles(cfg_data)
+
+        # --- Optionally build features (feature builder is responsible for creating log returns) ---
+        if getattr(cfg_data, "add_features", False):
             prefixes = [s.lower() for s in symbols]
-            if target_symbol and target_symbol.upper() not in [s.upper() for s in symbols]:
-                prefixes.append(target_symbol.lower())
-            if self.cfg.data.add_features:
-                df = add_multi_pair_features(df, prefixes)
-            target_prefix = (target_symbol or symbols[0]).lower()
-        else:
-            df = load_candles(self.cfg.data)
-            if self.cfg.data.add_features:
-                df = add_technical_features(df)
-            target_prefix = None
+            df = build_feature_set(df, prefixes=prefixes, target_prefix=target_prefix)
 
-        self.predict_returns = getattr(self.cfg.data, 'predict_returns', False)
-        return_col = f'{target_prefix}_return_vol_norm' if target_prefix else 'return_vol_norm'
-        log_return_col = f'{target_prefix}_log_return' if target_prefix else 'log_return'
-        close_col = f'{target_prefix}_close' if target_prefix else 'close'
-        if self.predict_returns and return_col in df.columns:
-            target_col = return_col
-        elif self.predict_returns and log_return_col in df.columns:
-            target_col = log_return_col
-        else:
-            target_col = close_col
-        target_idx = df.columns.get_loc(target_col) if target_col in df.columns else 4
+        # Ensure the base log-return column exists after feature building
+        base_target_col = f"{target_prefix}_log_return"
+        if base_target_col not in df.columns:
+            raise ValueError(f"Missing required column '{base_target_col}' after feature building. "
+                             "Ensure build_feature_set creates log returns or set add_features=True.")
 
-        values = df.values
+        # --- Create the explicit shifted target column BEFORE scaling/sequencing ---
+        target_col = f"{target_prefix}_target"
+        df[target_col] = df[base_target_col].shift(-1)
 
-        scalers = fit_scalers(values, target_idx)
-        values_scaled = apply_scalers(values, scalers)
+        # Drop rows with NaNs introduced by feature creation or shifting
+        df = df.dropna().reset_index(drop=True)
 
-        X, y = create_sequences(values_scaled, self.cfg.model.seq_len, target_idx)
-        X, y = X.astype(np.float32), y.astype(np.float32)
+        # --- Split features / target ---
+        # Keep the full dataframe columns for reference; build X, y for modeling
+        if target_col not in df.columns:
+            raise ValueError(f"Target column '{target_col}' missing after shift operation.")
 
-        split = int(len(X) * self.cfg.data.train_split)
-        X_train, X_val = X[:split], X[split:]
-        y_train, y_val = y[:split], y[split:]
+        X_df = df.drop(columns=[target_col])
+        y = df[target_col].values
 
-        train_ds = TensorDataset(torch.from_numpy(X_train), torch.from_numpy(y_train))
-        val_ds = TensorDataset(torch.from_numpy(X_val), torch.from_numpy(y_val))
+        # --- Scale features ---
+        # Use a scaler instance stored on the trainer so it can be reused at inference time
+        from sklearn.preprocessing import StandardScaler
+        self.feature_scaler = StandardScaler()
+        X_scaled = self.feature_scaler.fit_transform(X_df.values)
 
-        self.train_loader = DataLoader(train_ds, batch_size=self.cfg.training.batch_size, shuffle=True)
-        self.val_loader = DataLoader(val_ds, batch_size=self.cfg.training.batch_size, shuffle=False)
+        # --- Sequence creation ---
+        # Sequence length comes from training config; fallback to 64 if missing
+        seq_len = getattr(self.cfg.training, "sequence_length", None)
+        if seq_len is None:
+            seq_len = 64
 
-        self.df = df
-        self.scalers = scalers
-        self.target_idx = target_idx
+        def create_sequences(X, y, seq_length):
+            Xs, ys = [], []
+            for i in range(len(X) - seq_length):
+                Xs.append(X[i : i + seq_length])
+                ys.append(y[i + seq_length])
+            return np.array(Xs), np.array(ys)
 
-        if self.predict_returns:
-            # scaled representation of a raw return of exactly 0, used as the directional baseline
-            fs = scalers.feature_scaler
-            self.zero_baseline_scaled = float(-fs.mean_[target_idx] / fs.scale_[target_idx])
-        else:
-            self.zero_baseline_scaled = None
+        import numpy as np
+        X_seq, y_seq = create_sequences(X_scaled, y, seq_len)
 
+        if len(X_seq) == 0:
+            raise ValueError("No sequences created. Check sequence_length and dataset size.")
+
+        # --- Train / validation split ---
+        split = float(cfg_data.train_split)
+        if not (0.0 < split < 1.0):
+            raise ValueError("cfg.data.train_split must be a float between 0 and 1")
+
+        n_train = int(len(X_seq) * split)
+        if n_train < 1 or n_train == len(X_seq):
+            raise ValueError("Train split produced invalid train/validation sizes. Adjust train_split or provide more data.")
+
+        self.X_train = X_seq[:n_train]
+        self.y_train = y_seq[:n_train]
+        self.X_val = X_seq[n_train:]
+        self.y_val = y_seq[n_train:]
+
+        # --- Save metadata for later use (column names, target index, etc.) ---
+        self.feature_columns = list(X_df.columns)
+        self.target_column = target_col
+        self.seq_len = seq_len
+
+        # Optionally convert to torch tensors here if training loop expects tensors
+        if getattr(self.cfg.training, "use_torch", False):
+            import torch
+            self.X_train = torch.tensor(self.X_train, dtype=torch.float32)
+            self.y_train = torch.tensor(self.y_train, dtype=torch.float32)
+            self.X_val = torch.tensor(self.X_val, dtype=torch.float32)
+            self.y_val = torch.tensor(self.y_val, dtype=torch.float32)
+
+        # Final sanity checks
+        assert len(self.X_train) > 0 and len(self.X_val) > 0, "Empty train or validation set after split"
+        assert self.X_train.shape[1] == seq_len, "Sequence length mismatch in training data"
+
+        # Return shapes for convenience (optional)
+        return {
+            "X_train_shape": self.X_train.shape,
+            "y_train_shape": self.y_train.shape,
+            "X_val_shape": self.X_val.shape,
+            "y_val_shape": self.y_val.shape,
+            "feature_count": len(self.feature_columns),
+            "sequence_length": seq_len,
+        }
+    
     def run(self):
         seed = getattr(self.cfg.training, 'seed', 42)
         torch.manual_seed(seed)

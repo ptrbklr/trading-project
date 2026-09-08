@@ -22,8 +22,12 @@ def _candidate_data_dirs(data_dir: str):
     return unique
 
 
-def find_candle_file(cfg_data) -> str:
-    filename = f"{cfg_data.symbol}_{cfg_data.interval_minutes}min.csv"
+def find_candle_file(cfg_data, symbol) -> str:
+    """
+    Find the candle file for a specific symbol using cfg_data.dir and cfg_data.interval_minutes.
+    Accepts cfg_data (cfg.data from YAML) and an explicit symbol string.
+    """
+    filename = f"{symbol.upper()}_{cfg_data.interval_minutes}min.csv"
     attempted = []
     for base_dir in _candidate_data_dirs(cfg_data.dir):
         path = os.path.join(base_dir, filename)
@@ -156,18 +160,23 @@ def load_candles_for_training(data_dir, pair_name, interval_minutes):
     return df
 
 
-def find_candle_file_for_symbol(data_dir: str, symbol: str, interval_minutes: int) -> str:
-    filename = f"{symbol}_{interval_minutes}min.csv"
-    attempted = []
-    for base_dir in _candidate_data_dirs(data_dir):
-        path = os.path.join(base_dir, filename)
-        attempted.append(path)
-        if os.path.exists(path):
-            return path
+def load_candles_for_symbol(cfg_data, symbol):
+    """
+    Load raw OHLCV candles for a single symbol.
+    cfg_data must be the YAML data object (cfg.data).
+    """
+    # Defensive validation
+    if not hasattr(cfg_data, "dir") or not hasattr(cfg_data, "interval_minutes"):
+        raise TypeError("cfg_data must be the YAML data object (cfg.data) with 'dir' and 'interval_minutes'")
 
-    raise FileNotFoundError(
-        f"Candle file not found. Looked for: {filename} in {attempted}"
-    )
+    path = find_candle_file(cfg_data, symbol)
+    df = pd.read_csv(path)
+
+    # Ensure timestamp is parsed
+    if "timestamp" in df.columns:
+        df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
+
+    return df
 
 
 def _load_pair_ohlcv(data_dir: str, symbol: str, interval_minutes: int) -> pd.DataFrame:
@@ -245,42 +254,33 @@ def _add_funding_divergence(df: pd.DataFrame, data_dir: str) -> pd.DataFrame:
     return df
 
 
-def load_multi_pair_candles(cfg_data) -> pd.DataFrame:
+def load_multi_pair_candles(cfg_data):
+    """
+    Multi-asset loader.
+    Loads raw candles for each symbol and merges them on timestamp.
+    Returns prefix-safe dataframe (btc_close, eth_volume, sol_log_return, ...)
+    """
+    # Defensive validation
+    if not hasattr(cfg_data, "symbols"):
+        raise TypeError("cfg_data must include 'symbols' (list of symbols). Pass cfg.data from YAML.")
+
     symbols = list(cfg_data.symbols)
-    interval = cfg_data.interval_minutes
+    dfs = []
 
-    merged = None
     for sym in symbols:
-        leg = _load_pair_ohlcv(cfg_data.dir, sym, interval)
-        merged = leg if merged is None else pd.merge(merged, leg, on='timestamp', how='inner')
+        df_sym = load_candles_for_symbol(cfg_data, sym)
+        # Add prefix: btc_close, eth_volume, sol_log_return, ...
+        df_sym = df_sym.add_prefix(sym.lower() + "_")
+        dfs.append(df_sym)
 
-    # === Add technical indicators for each pair automatically ===
-    from .features import add_technical_features_for
+    # Merge all symbols on timestamp
+    from functools import reduce
+    df_merged = reduce(
+        lambda left, right: left.merge(right, on="timestamp", how="inner"),
+        dfs
+    )
 
-    tech_parts = [merged]
-    for sym in symbols:
-        prefix = sym.lower()
-        tech = add_technical_features_for(merged, prefix)
-        tech_parts.append(tech)
+    # Loader NEVER creates features or targets.
+    # Trainer will call build_feature_set() and create target column.
 
-    merged = pd.concat(tech_parts, axis=1)
-
-    target_symbol = getattr(cfg_data, 'target_symbol', None)
-    reciprocal_source = getattr(cfg_data, 'reciprocal_source', None)
-    if target_symbol and target_symbol.upper() not in [s.upper() for s in symbols]:
-        if reciprocal_source and reciprocal_source.upper() in [s.upper() for s in symbols]:
-            merged = _add_reciprocal_cross(merged, reciprocal_source, target_symbol)
-        elif len(symbols) == 2:
-            merged = _add_synthetic_cross(merged, symbols[0], symbols[1], target_symbol)
-        else:
-            raise ValueError(
-                "target_symbol requires either reciprocal_source (a native pair in symbols) "
-                "or exactly two input symbols to derive a synthetic cross"
-            )
-
-    if {'BTC', 'ETH'}.issubset({s.upper() for s in symbols}):
-        merged = _add_funding_divergence(merged, cfg_data.dir)
-
-    merged = merged.sort_values('timestamp').reset_index(drop=True)
-    merged = merged.drop(columns=['timestamp'])
-    return merged
+    return df_merged
