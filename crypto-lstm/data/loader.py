@@ -160,25 +160,6 @@ def load_candles_for_training(data_dir, pair_name, interval_minutes):
     return df
 
 
-def load_candles_for_symbol(cfg_data, symbol):
-    """
-    Load raw OHLCV candles for a single symbol.
-    cfg_data must be the YAML data object (cfg.data).
-    """
-    # Defensive validation
-    if not hasattr(cfg_data, "dir") or not hasattr(cfg_data, "interval_minutes"):
-        raise TypeError("cfg_data must be the YAML data object (cfg.data) with 'dir' and 'interval_minutes'")
-
-    path = find_candle_file(cfg_data, symbol)
-    df = pd.read_csv(path)
-
-    # Ensure timestamp is parsed
-    if "timestamp" in df.columns:
-        df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
-
-    return df
-
-
 def _load_pair_ohlcv(data_dir: str, symbol: str, interval_minutes: int) -> pd.DataFrame:
     path = find_candle_file_for_symbol(data_dir, symbol, interval_minutes)
     df = pd.read_csv(path)
@@ -254,13 +235,56 @@ def _add_funding_divergence(df: pd.DataFrame, data_dir: str) -> pd.DataFrame:
     return df
 
 
-def load_multi_pair_candles(cfg_data):
+from pathlib import Path
+import os
+import pandas as pd
+from functools import reduce
+
+# helper: normalize timestamp column name and parse it
+def _ensure_timestamp_col(df):
+    # common timestamp column names to check
+    candidates = ["timestamp", "time", "date", "datetime"]
+    for c in candidates:
+        if c in df.columns:
+            df = df.rename(columns={c: "timestamp"})
+            df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
+            return df
+    # if none found, try to infer by dtype (first datetime-like column)
+    for col in df.columns:
+        if pd.api.types.is_datetime64_any_dtype(df[col]):
+            df = df.rename(columns={col: "timestamp"})
+            return df
+    # last resort: try to parse first column
+    first = df.columns[0]
+    try:
+        df[first] = pd.to_datetime(df[first], utc=True)
+        df = df.rename(columns={first: "timestamp"})
+        return df
+    except Exception:
+        raise KeyError("No timestamp column found or parseable in candle file")
+
+def load_candles_for_symbol(cfg_data, symbol):
     """
-    Multi-asset loader.
-    Loads raw candles for each symbol and merges them on timestamp.
-    Returns prefix-safe dataframe (btc_close, eth_volume, sol_log_return, ...)
+    Load raw OHLCV candles for a single symbol.
+    Ensures a canonical 'timestamp' column is present (datetime, UTC).
     """
     # Defensive validation
+    if not hasattr(cfg_data, "dir") or not hasattr(cfg_data, "interval_minutes"):
+        raise TypeError("cfg_data must be the YAML data object (cfg.data) with 'dir' and 'interval_minutes'")
+
+    path = find_candle_file(cfg_data, symbol)
+    df = pd.read_csv(path)
+
+    # Normalize timestamp column and parse it
+    df = _ensure_timestamp_col(df)
+
+    return df
+
+def load_multi_pair_candles(cfg_data):
+    """
+    Multi-asset loader that keeps a canonical 'timestamp' column and prefixes
+    only the non-timestamp columns for each symbol.
+    """
     if not hasattr(cfg_data, "symbols"):
         raise TypeError("cfg_data must include 'symbols' (list of symbols). Pass cfg.data from YAML.")
 
@@ -269,18 +293,21 @@ def load_multi_pair_candles(cfg_data):
 
     for sym in symbols:
         df_sym = load_candles_for_symbol(cfg_data, sym)
-        # Add prefix: btc_close, eth_volume, sol_log_return, ...
-        df_sym = df_sym.add_prefix(sym.lower() + "_")
-        dfs.append(df_sym)
 
-    # Merge all symbols on timestamp
-    from functools import reduce
-    df_merged = reduce(
-        lambda left, right: left.merge(right, on="timestamp", how="inner"),
-        dfs
-    )
+        # Keep timestamp column unprefixed, prefix all other columns
+        ts = df_sym["timestamp"]
+        non_ts = df_sym.drop(columns=["timestamp"])
+        non_ts = non_ts.add_prefix(sym.lower() + "_")
 
-    # Loader NEVER creates features or targets.
-    # Trainer will call build_feature_set() and create target column.
+        # Reattach timestamp as the first column
+        df_prefixed = pd.concat([ts.reset_index(drop=True), non_ts.reset_index(drop=True)], axis=1)
+        # Ensure timestamp column name is exactly 'timestamp'
+        df_prefixed = df_prefixed.rename(columns={df_prefixed.columns[0]: "timestamp"})
+
+        dfs.append(df_prefixed)
+
+    # Merge all symbols on timestamp (inner join)
+    df_merged = reduce(lambda left, right: left.merge(right, on="timestamp", how="inner"), dfs)
 
     return df_merged
+   

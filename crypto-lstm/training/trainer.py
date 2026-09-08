@@ -6,7 +6,7 @@ import sys
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_absolute_error, mean_squared_error  # ← CRITICAL IMPORT
 from data.loader import load_candles, load_multi_pair_candles
-from data.features import add_technical_features, add_multi_pair_features
+from data.features import add_technical_features, add_multi_pair_features, build_feature_set
 from data.scaling import fit_scalers, apply_scalers
 from data.sequences import create_sequences
 from models.factory import create_model
@@ -121,13 +121,11 @@ class Trainer:
         y = df[target_col].values
 
         # --- Scale features ---
-        # Use a scaler instance stored on the trainer so it can be reused at inference time
         from sklearn.preprocessing import StandardScaler
         self.feature_scaler = StandardScaler()
         X_scaled = self.feature_scaler.fit_transform(X_df.values)
 
         # --- Sequence creation ---
-        # Sequence length comes from training config; fallback to 64 if missing
         seq_len = getattr(self.cfg.training, "sequence_length", None)
         if seq_len is None:
             seq_len = 64
@@ -184,7 +182,7 @@ class Trainer:
             "y_val_shape": self.y_val.shape,
             "feature_count": len(self.feature_columns),
             "sequence_length": seq_len,
-        }
+    }
     
     def run(self):
         seed = getattr(self.cfg.training, 'seed', 42)
