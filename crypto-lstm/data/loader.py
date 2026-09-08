@@ -245,7 +245,8 @@ def _add_funding_divergence(df: pd.DataFrame, data_dir: str) -> pd.DataFrame:
     return df
 
 
-def load_multi_pair_candles(cfg_data) -> pd.DataFrame:
+def load_multi_pair_candles_(cfg_data) -> pd.DataFrame:
+
     symbols = list(cfg_data.symbols)
     interval = cfg_data.interval_minutes
 
@@ -284,3 +285,65 @@ def load_multi_pair_candles(cfg_data) -> pd.DataFrame:
     merged = merged.sort_values('timestamp').reset_index(drop=True)
     merged = merged.drop(columns=['timestamp'])
     return merged
+
+
+def load_candles_for_symbol(cfg_data, symbol):
+    """
+    Load raw OHLCV candles for a single symbol.
+    cfg_data comes from YAML: cfg.data
+    """
+    base_dir = Path(cfg_data.dir)
+    interval = cfg_data.interval_minutes
+
+    filename = f"{symbol.upper()}_{interval}min.csv"
+    filepath = base_dir / filename
+
+    if not filepath.exists():
+        raise FileNotFoundError(f"Missing candle file: {filepath}")
+
+    df = pd.read_csv(filepath)
+
+    # Ensure timestamp is parsed
+    if "timestamp" in df.columns:
+        df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
+
+    return df
+
+
+def load_candles(cfg_data):
+    """
+    Single-asset loader.
+    Returns raw candles without features.
+    """
+    symbol = cfg_data.symbol
+    return load_candles_for_symbol(cfg_data, symbol)
+
+
+def load_multi_pair_candles(cfg_data) -> pd.DataFrame:
+    """
+    Multi-asset loader.
+    Loads raw candles for each symbol and merges them on timestamp.
+    Returns prefix-safe dataframe (btc_close, eth_volume, sol_log_return, ...)
+    """
+    symbols = list(cfg_data.symbols)
+    dfs = []
+
+    for sym in symbols:
+        df_sym = load_candles_for_symbol(cfg_data, sym)
+
+        # Add prefix: btc_close, eth_volume, sol_log_return, ...
+        df_sym = df_sym.add_prefix(sym.lower() + "_")
+
+        dfs.append(df_sym)
+
+    # Merge all symbols on timestamp
+    from functools import reduce
+    df_merged = reduce(
+        lambda left, right: left.merge(right, on="timestamp", how="inner"),
+        dfs
+    )
+
+    # Loader NEVER creates features or targets.
+    # Trainer will call build_feature_set() and create target column.
+
+    return df_merged

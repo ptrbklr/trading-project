@@ -80,7 +80,7 @@ class Trainer:
         else:
             df = load_candles(self.cfg.data)
             if self.cfg.data.add_features:
-                df = add_technical_features(df)
+                df = build_feature_set(df, prefixes=(""), target_prefix="")
             target_prefix = None
 
         self.predict_returns = getattr(self.cfg.data, 'predict_returns', False)
