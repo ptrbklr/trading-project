@@ -35,9 +35,12 @@ crypto-lstm/artifacts/pytorch_model.pth
 crypto-lstm/artifacts/config.yaml
 crypto-lstm/artifacts/config.yaml
 crypto-lstm/artifacts/config.yaml
+<<<<<<< HEAD
 crypto-lstm/models/sol_5min_lstm/epoch_3_best/metadata.json
 crypto-lstm/models/sol_5min_lstm/epoch_3_best/model.pth
 crypto-lstm/models/sol_5min_lstm/epoch_3_best/scalers.pt
 crypto-lstm/models/sol_5min_lstm/epoch_5_best/metadata.json
 crypto-lstm/models/sol_5min_lstm/epoch_5_best/model.pth
 *.pt
+=======
+>>>>>>> parent of dc2cfa9 (new features.py)
