@@ -50,6 +50,11 @@ def diagnostic_after_validation(pred_batches, target_batches, last_close_batches
     print(f"Sign distribution in targets: {np.unique(true_sign, return_counts=True)}")
     return dir_acc
 
+class ScalerBundle:
+    def __init__(self, feature_scaler=None, target_scaler=None):
+        self.feature_scaler = feature_scaler
+        self.target_scaler = target_scaler
+
 
 class Trainer:
     def __init__(self, cfg):
@@ -59,6 +64,13 @@ class Trainer:
         self.model = None  # ADD THIS LINE - store PyTorch mode
         # after self.cfg = cfg (or wherever cfg is available in __init__)
         self.predict_returns = bool(getattr(self.cfg.data, "predict_returns", False))
+        self.zero_baseline_scaled = 0.0
+        # ensure attributes exist so validation/metrics code won't crash
+        self.scalers = ScalerBundle()        # will be replaced with actual scaler objects later
+        self.target_idx = getattr(self.cfg.data, "target_idx", 0)  # default to 0 if not provided
+        self.zero_baseline_scaled = 0.0  # safe default; overwrite after fitting scalers if needed
+
+
 
 
         if torch.cuda.is_available():
@@ -199,6 +211,19 @@ class Trainer:
         from sklearn.preprocessing import StandardScaler
         self.feature_scaler = StandardScaler()
         X_scaled = self.feature_scaler.fit_transform(X_df.values)
+        # --- optional: fit target scaler if you scale y ---
+        # uncomment if your pipeline scales the target
+        # self.target_scaler = StandardScaler().fit(y_train.reshape(-1, 1))
+        # self.scalers = {
+        #     "feature": self.feature_scaler,
+        #     "target": self.target_scaler,
+        # }
+        # self.zero_baseline_scaled = float(self.target_scaler.transform([[0.0]])[0, 0])
+ 
+        # if you do NOT scale the target:
+        self.scalers = {"feature": self.feature_scaler}
+
+
 
         # --- Sequence creation ---
         seq_len = getattr(self.cfg.training, "sequence_length", None)
